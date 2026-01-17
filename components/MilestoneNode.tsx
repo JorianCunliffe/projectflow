@@ -164,7 +164,8 @@ export const MilestoneNode: React.FC<MilestoneNodeProps> = ({
     // Normal click is handled via mouseUp to distinguish from drag
   };
 
-  const isComplete = milestone.subtasks.length > 0 && milestone.subtasks.every(s => s.status === 'Complete');
+  const subtasks = milestone.subtasks || [];
+  const isComplete = subtasks.length > 0 && subtasks.every(s => s.status === 'Complete');
 
   return (
     <div 
@@ -213,7 +214,7 @@ export const MilestoneNode: React.FC<MilestoneNodeProps> = ({
           onMouseDown={handleMouseDown}
           onClick={handleClick}
         >
-          <MilestonePieChart subtasks={milestone.subtasks} size={100} />
+          <MilestonePieChart subtasks={subtasks} size={100} />
           
           {/* Drag Handle Indicator on Hover */}
           {!isLinkingMode && !isDragging && (
@@ -299,7 +300,7 @@ export const MilestoneNode: React.FC<MilestoneNodeProps> = ({
         <div className="mt-4 w-52 bg-white rounded-xl shadow-xl border border-slate-100 p-2 z-10 animate-in fade-in slide-in-from-top-2 duration-200">
           <div className="flex items-center justify-between border-b border-slate-50 pb-1.5 px-1 mb-2">
             <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-              Tasks ({milestone.subtasks.length})
+              Tasks ({subtasks.length})
             </div>
             <div className="flex items-center gap-1">
                <input 
@@ -314,7 +315,7 @@ export const MilestoneNode: React.FC<MilestoneNodeProps> = ({
             </div>
           </div>
           <div className="flex flex-col gap-1.5 max-h-48 overflow-y-auto pr-1">
-            {milestone.subtasks.map((task, idx) => (
+            {subtasks.map((task, idx) => (
               <div 
                 key={task.id} 
                 onClick={(e) => { e.stopPropagation(); onEditSubtask(milestone.id, idx); }}

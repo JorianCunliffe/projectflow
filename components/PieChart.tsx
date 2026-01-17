@@ -8,8 +8,9 @@ interface PieChartProps {
   size?: number;
 }
 
-export const MilestonePieChart: React.FC<PieChartProps> = ({ subtasks, size = 120 }) => {
-  const dataMap = subtasks.reduce((acc, sub) => {
+export const MilestonePieChart: React.FC<PieChartProps> = ({ subtasks = [], size = 120 }) => {
+  const safeSubtasks = subtasks || [];
+  const dataMap = safeSubtasks.reduce((acc, sub) => {
     acc[sub.status] = (acc[sub.status] || 0) + 1;
     return acc;
   }, {} as Record<string, number>);
@@ -26,7 +27,7 @@ export const MilestonePieChart: React.FC<PieChartProps> = ({ subtasks, size = 12
   }
 
   const completeCount = dataMap['Complete'] || 0;
-  const totalCount = subtasks.length || 1;
+  const totalCount = safeSubtasks.length || 1;
 
   return (
     <div style={{ width: size, height: size }} className="relative">

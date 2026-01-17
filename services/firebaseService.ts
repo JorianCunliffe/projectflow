@@ -1,0 +1,97 @@
+import { initializeApp } from 'firebase/app';
+import { getDatabase, ref, set, onValue } from 'firebase/database';
+import { Project, AppSettings } from '../types';
+
+const CONFIG_STORAGE_KEY = 'projectflow_firebase_config';
+
+// User provided configuration
+const DEFAULT_CONFIG = {
+  apiKey: "AIzaSyDPFo1kN2hV1xK3a6lFeGXgUuUnJEfKGH4",
+  authDomain: "projectflow-storage.firebaseapp.com",
+  databaseURL: "https://projectflow-storage-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "projectflow-storage",
+  storageBucket: "projectflow-storage.firebasestorage.app",
+  messagingSenderId: "282501228704",
+  appId: "1:282501228704:web:e0dae10ef3f6cd9b8b81c5",
+  measurementId: "G-JCVTVXCS8T"
+};
+
+let db: any = null;
+let isConfigured = false;
+
+// specific parsing to handle the user pasting the raw JS object from Firebase console
+const parseConfig = (raw: string | null) => {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch (e) {
+    try {
+      const cleaned = raw
+        .replace(/const\s+\w+\s*=\s*/, '') 
+        .replace(/;/g, '') 
+        .replace(/(\w+):/g, '"$1":') 
+        .replace(/'/g, '"'); 
+      return JSON.parse(cleaned);
+    } catch (e2) {
+      return null;
+    }
+  }
+};
+
+try {
+  // Check local storage first, otherwise use default
+  const saved = localStorage.getItem(CONFIG_STORAGE_KEY);
+  const config = saved ? parseConfig(saved) : DEFAULT_CONFIG;
+  
+  if (config && config.databaseURL) {
+    const app = initializeApp(config);
+    db = getDatabase(app);
+    isConfigured = true;
+  }
+} catch (e) {
+  console.error("Firebase Initialization Error:", e);
+}
+
+export const firebaseService = {
+  isConfigured: () => isConfigured,
+
+  configure: (configString: string) => {
+    const config = parseConfig(configString);
+    if (config && config.databaseURL) {
+      localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(config));
+      window.location.reload();
+      return true;
+    }
+    return false;
+  },
+
+  disconnect: () => {
+    localStorage.removeItem(CONFIG_STORAGE_KEY);
+    window.location.reload();
+  },
+
+  subscribe: (callback: (data: { projects: Project[], settings: AppSettings } | null) => void) => {
+    if (!db) return () => {};
+
+    const dataRef = ref(db, 'projectflow_v1');
+    return onValue(dataRef, (snapshot) => {
+      const data = snapshot.val();
+      callback(data);
+    });
+  },
+
+  save: async (data: { projects: Project[], settings: AppSettings }) => {
+    if (!db) return;
+    const dataRef = ref(db, 'projectflow_v1');
+    
+    // Sanitize data to remove undefined values which Firebase rejects.
+    // JSON.stringify removes keys with undefined values in objects.
+    const cleanData = JSON.parse(JSON.stringify({
+      projects: data.projects || [],
+      settings: data.settings,
+      lastUpdated: Date.now()
+    }));
+
+    await set(dataRef, cleanData);
+  }
+};

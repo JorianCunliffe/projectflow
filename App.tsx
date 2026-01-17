@@ -36,9 +36,16 @@ import {
   Link as LinkIcon,
   ExternalLink,
   Map as MapIcon,
-  Layout
+  Layout,
+  Cloud,
+  CloudOff,
+  Wifi,
+  Database,
+  ArrowRight,
+  LogOut
 } from 'lucide-react';
 import { geminiService } from './services/geminiService';
+import { firebaseService } from './services/firebaseService';
 import { getStatusBorderColor } from './constants';
 
 const STORAGE_KEY = 'projectflow_data_v6';
@@ -82,6 +89,7 @@ const SettingsSection: React.FC<{
   onRemove: (v: string) => void 
 }> = ({ title, icon, items, onAdd, onRemove }) => {
   const [inputValue, setInputValue] = useState('');
+  const safeItems = items || []; // Safety check
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center gap-2 text-slate-800 font-bold mb-1 border-b border-slate-100 pb-2">
@@ -105,7 +113,7 @@ const SettingsSection: React.FC<{
         </button>
       </div>
       <div className="flex flex-wrap gap-2 mt-1">
-        {items.map(item => (
+        {safeItems.map(item => (
           <div key={item} className="bg-slate-100 text-slate-700 text-xs px-2 py-1 rounded-md flex items-center gap-2 group border border-slate-200">
             {item}
             <button onClick={() => onRemove(item)} className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all">
@@ -113,7 +121,7 @@ const SettingsSection: React.FC<{
             </button>
           </div>
         ))}
-        {items.length === 0 && <span className="text-xs text-slate-400 italic">No items defined</span>}
+        {safeItems.length === 0 && <span className="text-xs text-slate-400 italic">No items defined</span>}
       </div>
     </div>
   );
@@ -139,6 +147,10 @@ const App: React.FC = () => {
   const [isCreatingProject, setIsCreatingProject] = useState(false);
   const [isEditingSubtask, setIsEditingSubtask] = useState<{ mId: string, sIdx: number | null } | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isCloudSetupOpen, setIsCloudSetupOpen] = useState(false);
+  const [firebaseConfigInput, setFirebaseConfigInput] = useState('');
+  const [configError, setConfigError] = useState<string | null>(null);
+
   const [isGenerating, setIsGenerating] = useState(false);
   const [milestoneToDelete, setMilestoneToDelete] = useState<string | null>(null);
   const [projectToDelete, setProjectToDelete] = useState<string | null>(null);
@@ -148,6 +160,10 @@ const App: React.FC = () => {
 
   // Minimap State
   const [showMinimap, setShowMinimap] = useState(true);
+
+  // Cloud Sync State
+  const [cloudStatus, setCloudStatus] = useState<'disconnected' | 'syncing' | 'connected'>('disconnected');
+  const isRemoteUpdate = useRef(false);
 
   const [newProject, setNewProject] = useState({ 
     name: '', 
@@ -165,22 +181,112 @@ const App: React.FC = () => {
     return settings.dateFormat === 'DD/MM/YY' ? `${day}/${month}/${year}` : `${month}/${day}/${year}`;
   };
 
+  // INITIAL LOAD & CLOUD SUBSCRIPTION
   useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        setProjects(parsed.projects || []);
-        setSettings({ ...DEFAULT_SETTINGS, ...parsed.settings });
-      } catch (e) {
-        console.error("Failed to load state", e);
+    if (!firebaseService.isConfigured()) {
+      // Fallback to LocalStorage if Firebase is not set up
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          setProjects(parsed.projects || []);
+          setSettings({ ...DEFAULT_SETTINGS, ...parsed.settings });
+        } catch (e) {
+          console.error("Failed to load local state", e);
+        }
       }
+      return;
     }
+
+    setCloudStatus('syncing');
+
+    const unsubscribe = firebaseService.subscribe((data) => {
+      setCloudStatus('connected');
+      if (data) {
+        // Flag that this update is from the cloud so we don't save it back immediately
+        isRemoteUpdate.current = true;
+        
+        // DEEP SANITIZATION: Firebase strips empty arrays and may return Objects for lists
+        const rawProjects = data.projects || [];
+        // Convert Object to Array if necessary (Firebase returns object if keys are not sequential 0,1,2)
+        const projectsList = Array.isArray(rawProjects) ? rawProjects : Object.values(rawProjects);
+
+        const sanitizedProjects = projectsList.map((p: any) => ({
+          ...p,
+          milestones: (Array.isArray(p.milestones) ? p.milestones : Object.values(p.milestones || [])).map((m: any) => ({
+            ...m,
+            dependsOn: m.dependsOn || [],
+            subtasks: m.subtasks || []
+          }))
+        }));
+
+        setProjects(sanitizedProjects);
+        
+        if (data.settings) {
+          setSettings(prev => ({
+            ...prev,
+            ...data.settings,
+            projectTypes: data.settings.projectTypes || prev.projectTypes || DEFAULT_SETTINGS.projectTypes,
+            companies: data.settings.companies || prev.companies || DEFAULT_SETTINGS.companies,
+            people: data.settings.people || prev.people || DEFAULT_SETTINGS.people,
+            statuses: data.settings.statuses || prev.statuses || DEFAULT_SETTINGS.statuses,
+          }));
+        }
+      } else {
+        // If cloud is empty but we have local data, upload it once
+        const local = localStorage.getItem(STORAGE_KEY);
+        if (local) {
+          try {
+            const parsed = JSON.parse(local);
+            if (parsed.projects?.length > 0) {
+              firebaseService.save({ projects: parsed.projects, settings: parsed.settings });
+            }
+          } catch(e) {}
+        }
+      }
+    });
+
+    return () => unsubscribe();
   }, []);
 
+  // SAVE CHANGES (Cloud or Local)
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ projects, settings }));
+    if (isRemoteUpdate.current) {
+      isRemoteUpdate.current = false;
+      return;
+    }
+
+    const saveData = async () => {
+      if (firebaseService.isConfigured()) {
+        setCloudStatus('syncing');
+        await firebaseService.save({ projects, settings });
+        setCloudStatus('connected');
+      } else {
+        // Fallback save to local storage
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ projects, settings }));
+      }
+    };
+
+    // Debounce save to avoid slamming the DB
+    const timer = setTimeout(saveData, 800);
+    return () => clearTimeout(timer);
   }, [projects, settings]);
+
+  const handleSaveFirebaseConfig = () => {
+    const success = firebaseService.configure(firebaseConfigInput);
+    if (success) {
+      setIsCloudSetupOpen(false);
+      // Window will reload
+    } else {
+      setConfigError("Invalid configuration format. Please ensure it contains 'databaseURL'.");
+    }
+  };
+
+  const handleDisconnectFirebase = () => {
+    if(window.confirm("Are you sure you want to disconnect? You will switch back to local storage.")) {
+      firebaseService.disconnect();
+    }
+  }
 
   const filteredProjects = useMemo(() => {
     return projects.filter(p => {
@@ -203,7 +309,7 @@ const App: React.FC = () => {
     const getLevel = (id: string): number => {
       if (levels[id] !== undefined) return levels[id];
       const m = activeProject.milestones.find(mil => mil.id === id);
-      if (!m || m.dependsOn.length === 0) {
+      if (!m || (m.dependsOn || []).length === 0) {
         levels[id] = 0;
         return 0;
       }
@@ -276,7 +382,7 @@ const App: React.FC = () => {
       if (results.has(mId)) return results.get(mId)!.targetDate;
 
       let maxParentDate = new Date(activeProject.startDate);
-      milestone.dependsOn.forEach(parentId => {
+      (milestone.dependsOn || []).forEach(parentId => {
         const parentDate = calculate(parentId);
         if (parentDate > maxParentDate) maxParentDate = parentDate;
       });
@@ -299,7 +405,7 @@ const App: React.FC = () => {
 
     activeProject.milestones.forEach(m => {
       totalEstimatedDays += (m.estimatedDuration || 0);
-      m.subtasks.forEach(s => {
+      (m.subtasks || []).forEach(s => {
         totalTasks++;
         if (s.status === 'Complete') completedTasks++;
         statusCount[s.status] = (statusCount[s.status] || 0) + 1;
@@ -343,7 +449,7 @@ const App: React.FC = () => {
 
     if (withSubtree) {
        const addDescendants = (parentId: string) => {
-         activeProject.milestones.filter(m => m.dependsOn.includes(parentId)).forEach(child => {
+         activeProject.milestones.filter(m => (m.dependsOn || []).includes(parentId)).forEach(child => {
            if (!nodesToMove.has(child.id)) {
              nodesToMove.add(child.id);
              addDescendants(child.id);
@@ -443,7 +549,7 @@ const App: React.FC = () => {
             notes: '',
             status: 'Not started'
           }));
-          return { ...m, subtasks: [...m.subtasks, ...formattedTasks] };
+          return { ...m, subtasks: [...(m.subtasks || []), ...formattedTasks] };
         })
       };
     }));
@@ -459,7 +565,8 @@ const App: React.FC = () => {
         milestones = res.milestones.map((m: any) => ({
           ...m,
           estimatedDuration: 5,
-          subtasks: m.subtasks.map((s: any) => ({
+          dependsOn: m.dependsOn || [],
+          subtasks: (m.subtasks || []).map((s: any) => ({
             id: Math.random().toString(36).substr(2, 9),
             name: s.name,
             description: s.description,
@@ -544,7 +651,7 @@ const App: React.FC = () => {
           .filter(m => m.id !== mId)
           .map(m => ({
             ...m,
-            dependsOn: m.dependsOn.filter(depId => depId !== mId)
+            dependsOn: (m.dependsOn || []).filter(depId => depId !== mId)
           }))
       };
     }));
@@ -566,7 +673,7 @@ const App: React.FC = () => {
 
     // Check if link already exists
     const targetMilestone = activeProject.milestones.find(m => m.id === targetId);
-    if (targetMilestone?.dependsOn.includes(linkingSourceId)) {
+    if (targetMilestone?.dependsOn?.includes(linkingSourceId)) {
       alert("These milestones are already linked.");
       setLinkingSourceId(null);
       return;
@@ -577,7 +684,7 @@ const App: React.FC = () => {
       if (ancestorId === nodeId) return true;
       const node = activeProject.milestones.find(m => m.id === nodeId);
       if (!node) return false;
-      return node.dependsOn.some(depId => isAncestor(ancestorId, depId));
+      return (node.dependsOn || []).some(depId => isAncestor(ancestorId, depId));
     };
 
     if (isAncestor(targetId, linkingSourceId)) {
@@ -593,7 +700,7 @@ const App: React.FC = () => {
         updatedAt: Date.now(),
         milestones: p.milestones.map(m => {
           if (m.id !== targetId) return m;
-          return { ...m, dependsOn: [...m.dependsOn, linkingSourceId] };
+          return { ...m, dependsOn: [...(m.dependsOn || []), linkingSourceId] };
         })
       };
     }));
@@ -644,7 +751,7 @@ const App: React.FC = () => {
           if (m.id !== mId) return m;
           return {
             ...m,
-            subtasks: [...m.subtasks, {
+            subtasks: [...(m.subtasks || []), {
               id: `s-${Date.now()}`,
               name: 'New Subtask',
               description: '',
@@ -666,7 +773,7 @@ const App: React.FC = () => {
         updatedAt: Date.now(),
         milestones: p.milestones.map(m => {
           if (m.id !== mId) return m;
-          const newSubtasks = [...m.subtasks];
+          const newSubtasks = [...(m.subtasks || [])];
           const oldStatus = newSubtasks[sIdx].status;
           const newStatus = updates.status || oldStatus;
           
@@ -690,7 +797,7 @@ const App: React.FC = () => {
 
   const updateSettingsList = (key: keyof AppSettings, value: string, action: 'add' | 'remove') => {
     setSettings(prev => {
-      const list = prev[key] as string[];
+      const list = (prev[key] || []) as string[];
       let newList = [...list];
       if (action === 'add' && value.trim() && !newList.includes(value)) newList.push(value);
       else if (action === 'remove') {
@@ -709,6 +816,26 @@ const App: React.FC = () => {
             <Layers size={24} />
           </div>
           <h1 className="text-xl font-bold text-slate-900 tracking-tight">ProjectFlow</h1>
+          {firebaseService.isConfigured() ? (
+            <button 
+              onClick={() => setIsCloudSetupOpen(true)}
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border transition-colors hover:bg-opacity-80 ${
+                cloudStatus === 'connected' ? 'bg-emerald-50 text-emerald-600 border-emerald-200' :
+                cloudStatus === 'syncing' ? 'bg-indigo-50 text-indigo-600 border-indigo-200' :
+                'bg-slate-100 text-slate-500 border-slate-200'
+              }`}
+            >
+              {cloudStatus === 'syncing' ? <RefreshCw size={12} className="animate-spin" /> : <Cloud size={12} />}
+              {cloudStatus === 'syncing' ? 'SYNCING...' : 'CLOUD ACTIVE'}
+            </button>
+          ) : (
+             <button 
+               onClick={() => setIsCloudSetupOpen(true)}
+               className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-600 border border-amber-200 hover:bg-amber-100 transition-colors"
+             >
+               <CloudOff size={12} /> LOCAL ONLY
+             </button>
+          )}
         </div>
         
         <div className="flex items-center gap-4">
@@ -760,7 +887,7 @@ const App: React.FC = () => {
                     onChange={(e) => setFilterType(e.target.value)}
                   >
                     <option value="ALL">All Types</option>
-                    {settings.projectTypes.map(t => <option key={t} value={t}>{t}</option>)}
+                    {(settings.projectTypes || []).map(t => <option key={t} value={t}>{t}</option>)}
                   </select>
                   <select 
                     className="bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm"
@@ -768,7 +895,7 @@ const App: React.FC = () => {
                     onChange={(e) => setFilterCompany(e.target.value)}
                   >
                     <option value="ALL">All Companies</option>
-                    {settings.companies.map(c => <option key={c} value={c}>{c}</option>)}
+                    {(settings.companies || []).map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </div>
               </div>
@@ -799,9 +926,10 @@ const App: React.FC = () => {
                   </div>
 
                   <div className="flex gap-2 mb-6 overflow-x-auto pb-2 scrollbar-hide flex-1">
-                    {p.milestones.slice(0, 4).map(m => {
-                      const complete = m.subtasks.filter(s => s.status === 'Complete').length;
-                      const total = m.subtasks.length || 1;
+                    {(p.milestones || []).slice(0, 4).map(m => {
+                      const safeSubtasks = m.subtasks || [];
+                      const complete = safeSubtasks.filter((s: any) => s.status === 'Complete').length;
+                      const total = safeSubtasks.length || 1;
                       const progress = (complete / total) * 360;
                       return (
                         <div key={m.id} className="shrink-0 flex flex-col items-center">
@@ -948,7 +1076,7 @@ const App: React.FC = () => {
                                     <g transform={`translate(${offsetX}, ${offsetY})`}>
                                         {canvasData.milestones.map(m => (
                                           <React.Fragment key={m.id}>
-                                            {m.dependsOn.map(pid => {
+                                            {(m.dependsOn || []).map(pid => {
                                               const parent = canvasData.milestones.find(p => p.id === pid);
                                               if (!parent) return null;
                                               const dx = (m.x || 0) - (parent.x || 0);
@@ -967,7 +1095,7 @@ const App: React.FC = () => {
                                           </React.Fragment>
                                         ))}
                                         {canvasData.milestones.map(m => {
-                                          const isComplete = m.subtasks.every(s => s.status === 'Complete');
+                                          const isComplete = (m.subtasks || []).every((s: any) => s.status === 'Complete') && (m.subtasks || []).length > 0;
                                           return (
                                             <circle
                                               key={`mini-node-${m.id}`}
@@ -1013,7 +1141,7 @@ const App: React.FC = () => {
                         </marker>
                       </defs>
                       {canvasData.milestones.map(m => (
-                        m.dependsOn.map(parentId => {
+                        (m.dependsOn || []).map(parentId => {
                           const parent = canvasData.milestones.find(mil => mil.id === parentId);
                           if (!parent) return null;
                           const isActive = hoveredMilestoneId === m.id || hoveredMilestoneId === parentId;
@@ -1128,7 +1256,7 @@ const App: React.FC = () => {
 
                     <div className="space-y-4">
                       <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Breakdown</span>
-                      {settings.statuses.map(status => {
+                      {(settings.statuses || []).map(status => {
                         const count = projectStats.statusCount[status] || 0;
                         const pct = (count / (projectStats.totalTasks || 1)) * 100;
                         return (
@@ -1168,6 +1296,85 @@ const App: React.FC = () => {
           </div>
         )}
       </main>
+
+      {/* Cloud Setup Modal */}
+      {isCloudSetupOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[100] flex items-center justify-center p-4 animate-in fade-in duration-300">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden border border-white/20 flex flex-col max-h-[90vh]">
+            <div className="p-8 border-b border-slate-100 flex items-center justify-between shrink-0">
+               <div className="flex items-center gap-4">
+                 <div className="p-3 bg-indigo-50 rounded-2xl text-indigo-600">
+                   <Cloud size={28} />
+                 </div>
+                 <div>
+                   <h3 className="text-2xl font-black text-slate-900">Cloud Sync Setup</h3>
+                   <p className="text-sm text-slate-500">Connect to Google Firebase for real-time collaboration.</p>
+                 </div>
+               </div>
+               <button onClick={() => setIsCloudSetupOpen(false)} className="p-2 hover:bg-slate-100 rounded-full transition-colors"><X size={24} /></button>
+            </div>
+            
+            <div className="p-8 overflow-y-auto">
+              {firebaseService.isConfigured() ? (
+                <div className="space-y-6 text-center">
+                  <div className="w-20 h-20 bg-emerald-50 text-emerald-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <CheckCircle2 size={40} />
+                  </div>
+                  <h4 className="text-xl font-bold text-slate-800">You are connected!</h4>
+                  <p className="text-slate-500 max-w-md mx-auto">
+                    Your projects are securely syncing with your Firebase Realtime Database. Any changes you make are instantly available to other users with this configuration.
+                  </p>
+                  <button 
+                    onClick={handleDisconnectFirebase}
+                    className="bg-red-50 text-red-600 font-bold px-6 py-3 rounded-xl hover:bg-red-100 transition-colors flex items-center gap-2 mx-auto mt-6"
+                  >
+                    <LogOut size={18} /> Disconnect & Switch to Local
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-8">
+                  <div className="bg-slate-50 rounded-2xl p-6 border border-slate-200">
+                    <h4 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
+                      <Database size={18} className="text-indigo-600" />
+                      How to get your credentials:
+                    </h4>
+                    <ol className="space-y-3 text-sm text-slate-600 list-decimal pl-5">
+                      <li>Go to <a href="https://console.firebase.google.com" target="_blank" className="text-indigo-600 font-bold hover:underline">console.firebase.google.com</a> and create a new project.</li>
+                      <li>In the project overview, click the <strong>Web (&lt;/&gt;)</strong> icon to register a web app.</li>
+                      <li>Copy the <code>firebaseConfig</code> object shown in the setup step.</li>
+                      <li>Make sure to enable <strong>Realtime Database</strong> in the Firebase console sidebar.</li>
+                      <li>Start in <strong>Test Mode</strong> for development (or configure rules for read/write).</li>
+                    </ol>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Firebase Configuration</label>
+                    <textarea 
+                      className="w-full h-48 bg-slate-900 text-slate-50 font-mono text-xs p-4 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 resize-none border border-slate-800"
+                      placeholder={`const firebaseConfig = {\n  apiKey: "...",\n  authDomain: "...",\n  databaseURL: "...",\n  projectId: "...",\n  storageBucket: "...",\n  messagingSenderId: "...",\n  appId: "..."\n};`}
+                      value={firebaseConfigInput}
+                      onChange={(e) => { setFirebaseConfigInput(e.target.value); setConfigError(null); }}
+                    />
+                    {configError && <p className="text-red-500 text-xs font-bold flex items-center gap-1"><AlertTriangle size={12} /> {configError}</p>}
+                    <p className="text-[10px] text-slate-400">Paste the full code block or just the JSON object.</p>
+                  </div>
+
+                  <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
+                     <button onClick={() => setIsCloudSetupOpen(false)} className="px-6 py-3 font-bold text-slate-500 hover:text-slate-800 hover:bg-slate-50 rounded-xl transition-colors">Cancel</button>
+                     <button 
+                       onClick={handleSaveFirebaseConfig}
+                       disabled={!firebaseConfigInput.trim()}
+                       className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold px-8 py-3 rounded-xl shadow-lg shadow-indigo-200 transition-all active:scale-95 flex items-center gap-2"
+                     >
+                       Connect Cloud <ArrowRight size={18} />
+                     </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {milestoneToDelete && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
@@ -1334,22 +1541,34 @@ const App: React.FC = () => {
                   <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Company</label>
                   <select className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-5 py-3 outline-none focus:border-indigo-500 text-slate-900 font-bold shadow-sm transition-all" value={newProject.company} onChange={(e) => setNewProject({ ...newProject, company: e.target.value })}>
                     <option value="">Select...</option>
-                    {settings.companies.map(c => <option key={c} value={c}>{c}</option>)}
+                    {(settings.companies || []).map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Category</label>
                   <select className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-5 py-3 outline-none focus:border-indigo-500 text-slate-900 font-bold shadow-sm transition-all" value={newProject.type} onChange={(e) => setNewProject({ ...newProject, type: e.target.value })}>
                     <option value="">Select...</option>
-                    {settings.projectTypes.map(t => <option key={t} value={t}>{t}</option>)}
+                    {(settings.projectTypes || []).map(t => <option key={t} value={t}>{t}</option>)}
                   </select>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4 mt-10">
                 <button onClick={() => setIsCreatingProject(false)} className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-black py-4 rounded-2xl transition-all active:scale-95 shadow-sm">Cancel</button>
                 <div className="flex flex-col gap-2">
-                  <button onClick={() => handleCreateProject(false)} className="bg-slate-900 hover:bg-black text-white font-black py-3 rounded-2xl flex items-center justify-center gap-2 shadow-lg transition-all active:scale-95">Manual Setup</button>
-                  <button onClick={() => handleCreateProject(true)} className="bg-indigo-600 hover:bg-indigo-700 text-white font-black py-3 rounded-2xl flex items-center justify-center gap-2 shadow-indigo-200 shadow-xl transition-all active:scale-95 border-b-4 border-indigo-800"><Wand2 size={16} /> AI Build</button>
+                  <button 
+                    onClick={() => handleCreateProject(false)} 
+                    disabled={!newProject.name}
+                    className="bg-white border-2 border-indigo-100 hover:border-indigo-600 text-indigo-700 font-bold py-3 rounded-2xl transition-all shadow-sm active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Create Blank
+                  </button>
+                  <button 
+                    onClick={() => handleCreateProject(true)} 
+                    disabled={!newProject.name}
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white font-black py-4 rounded-2xl shadow-lg shadow-indigo-200 transition-all active:scale-95 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <Wand2 size={18} /> AI Generate
+                  </button>
                 </div>
               </div>
             </div>
@@ -1357,94 +1576,117 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {isEditingSubtask && activeProject && (
+      {isEditingSubtask && selectedProjectId && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg p-10 border border-slate-200 animate-in zoom-in duration-200">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg p-8 border border-slate-200 animate-in fade-in zoom-in duration-200">
             {(() => {
-              const { mId, sIdx } = isEditingSubtask;
-              if (sIdx === null) return null;
-              const milestone = activeProject.milestones.find(m => m.id === mId);
-              const subtask = milestone?.subtasks[sIdx];
-              if (!subtask) return null;
+              const p = projects.find(proj => proj.id === selectedProjectId);
+              const m = p?.milestones.find(mil => mil.id === isEditingSubtask.mId);
+              const task = (m?.subtasks || [])[isEditingSubtask.sIdx!];
+              if (!task) return null;
+
               return (
-                <>
-                  <h3 className="text-2xl font-black text-slate-900 mb-8">Edit Task Details</h3>
-                  <div className="space-y-5">
+                <div className="space-y-6">
+                  <div className="flex justify-between items-start border-b border-slate-100 pb-4">
+                     <div>
+                       <h3 className="text-xl font-black text-slate-900">Edit Task</h3>
+                       <p className="text-xs text-slate-500 font-medium">In milestone: <span className="text-indigo-600">{m?.name}</span></p>
+                     </div>
+                     <button onClick={() => setIsEditingSubtask(null)} className="p-2 hover:bg-slate-100 rounded-full transition-colors"><X size={20} /></button>
+                  </div>
+                  
+                  <div className="space-y-4">
                     <div>
-                      <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Title</label>
-                      <input type="text" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-5 py-3 outline-none focus:border-indigo-500 text-slate-900 font-bold shadow-sm transition-all" value={subtask.name} onChange={(e) => updateSubtask(mId, sIdx, { name: e.target.value })} />
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Task Name</label>
+                      <input 
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-900 font-bold outline-none focus:ring-2 focus:ring-indigo-500"
+                        value={task.name}
+                        onChange={(e) => updateSubtask(isEditingSubtask.mId, isEditingSubtask.sIdx!, { name: e.target.value })}
+                      />
                     </div>
+                    
                     <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Owner</label>
-                        <select className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-5 py-3 outline-none focus:border-indigo-500 text-slate-900 font-bold shadow-sm" value={subtask.assignedTo} onChange={(e) => updateSubtask(mId, sIdx, { assignedTo: e.target.value })}>
+                       <div>
+                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Assigned To</label>
+                        <select 
+                          className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-900 font-medium outline-none focus:ring-2 focus:ring-indigo-500"
+                          value={task.assignedTo}
+                          onChange={(e) => updateSubtask(isEditingSubtask.mId, isEditingSubtask.sIdx!, { assignedTo: e.target.value })}
+                        >
                           <option value="">Unassigned</option>
-                          {settings.people.map(p => <option key={p} value={p}>{p}</option>)}
+                          {(settings.people || []).map(person => <option key={person} value={person}>{person}</option>)}
                         </select>
                       </div>
                       <div>
-                        <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Status</label>
-                        <select className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-5 py-3 outline-none focus:border-indigo-500 text-slate-900 font-bold shadow-sm" value={subtask.status} onChange={(e) => updateSubtask(mId, sIdx, { status: e.target.value })}>
-                          {settings.statuses.map(s => <option key={s} value={s}>{s}</option>)}
+                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Status</label>
+                        <select 
+                          className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-900 font-medium outline-none focus:ring-2 focus:ring-indigo-500"
+                          value={task.status}
+                          onChange={(e) => updateSubtask(isEditingSubtask.mId, isEditingSubtask.sIdx!, { status: e.target.value })}
+                        >
+                          {(settings.statuses || []).map(s => <option key={s} value={s}>{s}</option>)}
                         </select>
                       </div>
                     </div>
+
                     <div>
-                      <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Description</label>
-                      <textarea className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-5 py-3 h-24 outline-none focus:border-indigo-500 resize-none text-slate-900 font-medium shadow-sm" value={subtask.description} onChange={(e) => updateSubtask(mId, sIdx, { description: e.target.value })} />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Resource Link</label>
-                      <div className="flex gap-3">
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Resource Link (URL)</label>
+                      <div className="flex gap-2">
                         <input 
-                          type="text" 
-                          className="flex-1 bg-slate-50 border-2 border-slate-100 rounded-2xl px-5 py-3 outline-none focus:border-indigo-500 text-slate-900 font-bold shadow-sm transition-all text-sm" 
-                          value={subtask.link || ''} 
-                          onChange={(e) => updateSubtask(mId, sIdx, { link: e.target.value })} 
-                          placeholder="https://..."
+                          className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-indigo-500"
+                          placeholder="https://drive.google.com/..."
+                          value={task.link || ''}
+                          onChange={(e) => updateSubtask(isEditingSubtask.mId, isEditingSubtask.sIdx!, { link: e.target.value })}
                         />
-                        {subtask.link && (
+                        {task.link && (
                           <a 
-                            href={subtask.link.startsWith('http') ? subtask.link : `https://${subtask.link}`}
-                            target="_blank"
+                            href={task.link.startsWith('http') ? task.link : `https://${task.link}`} 
+                            target="_blank" 
                             rel="noopener noreferrer"
-                            className="w-14 bg-indigo-50 border-2 border-indigo-100 rounded-2xl flex items-center justify-center text-indigo-600 hover:bg-indigo-100 hover:border-indigo-200 transition-all shadow-sm"
-                            title="Open Link"
+                            className="p-2.5 bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-100 transition-colors"
                           >
                             <ExternalLink size={20} />
                           </a>
                         )}
                       </div>
                     </div>
-                    <div className="flex gap-4 mt-10">
-                      <button 
-                        onClick={() => { 
-                          if (window.confirm('Delete this task?')) { 
-                            setProjects(prev => prev.map(p => {
-                              if (p.id !== selectedProjectId) return p;
-                              return {
-                                ...p,
-                                updatedAt: Date.now(),
-                                milestones: p.milestones.map(m => {
-                                  if (m.id !== mId) return m;
-                                  return {
-                                    ...m,
-                                    subtasks: m.subtasks.filter((_, i) => i !== sIdx)
-                                  };
-                                })
-                              };
-                            }));
-                            setIsEditingSubtask(null); 
-                          } 
-                        }} 
-                        className="bg-red-50 text-red-600 hover:bg-red-100 font-black py-4 px-8 rounded-2xl transition-all shadow-sm"
-                      >
-                        Delete
-                      </button>
-                      <button onClick={() => setIsEditingSubtask(null)} className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-black py-4 rounded-2xl shadow-indigo-200 shadow-xl transition-all active:scale-95">Save & Close</button>
+
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Description</label>
+                      <textarea 
+                        className="w-full h-24 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+                        value={task.description}
+                        onChange={(e) => updateSubtask(isEditingSubtask.mId, isEditingSubtask.sIdx!, { description: e.target.value })}
+                      />
                     </div>
                   </div>
-                </>
+                  
+                  <div className="flex justify-between items-center pt-4 border-t border-slate-100">
+                    <button 
+                      onClick={() => {
+                        const newSubtasks = [...(m?.subtasks || [])];
+                        newSubtasks.splice(isEditingSubtask.sIdx!, 1);
+                        setProjects(prev => prev.map(p => {
+                          if (p.id !== selectedProjectId) return p;
+                          return {
+                            ...p,
+                            milestones: p.milestones.map(mil => mil.id === isEditingSubtask.mId ? { ...mil, subtasks: newSubtasks } : mil)
+                          };
+                        }));
+                        setIsEditingSubtask(null);
+                      }}
+                      className="text-red-500 hover:text-red-700 text-xs font-bold px-3 py-2 hover:bg-red-50 rounded-lg transition-colors flex items-center gap-2"
+                    >
+                      <Trash2 size={14} /> Delete Task
+                    </button>
+                    <button 
+                      onClick={() => setIsEditingSubtask(null)}
+                      className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-8 py-2.5 rounded-xl shadow-lg shadow-indigo-200 transition-all active:scale-95"
+                    >
+                      Done
+                    </button>
+                  </div>
+                </div>
               );
             })()}
           </div>
