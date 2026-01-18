@@ -897,7 +897,7 @@ const App: React.FC = () => {
 
   return (
     <div className="h-screen w-screen flex flex-col text-slate-900 bg-slate-50 overflow-hidden">
-      <header className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between sticky top-0 z-50 shadow-sm shrink-0">
+      <header className="bg-white border-b border-slate-200 px-4 md:px-6 py-4 flex items-center justify-between sticky top-0 z-50 shadow-sm shrink-0">
         <div className="flex items-center gap-3">
           <div className="p-2 bg-indigo-600 rounded-lg text-white">
             <Layers size={24} />
@@ -952,7 +952,7 @@ const App: React.FC = () => {
 
       <main className="flex-1 overflow-hidden relative flex">
         {!selectedProjectId ? (
-          <div className="flex-1 p-8 max-w-7xl mx-auto h-full overflow-y-auto">
+          <div className="flex-1 p-4 md:p-8 max-w-7xl mx-auto h-full overflow-y-auto">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
               <h2 className="text-2xl font-bold text-slate-800">Your Projects</h2>
               <div className="flex flex-wrap items-center gap-3">
@@ -1375,7 +1375,7 @@ const App: React.FC = () => {
               </div>
             </div>
 
-            <div className="w-80 bg-white border-l border-slate-200 shrink-0 flex flex-col z-30 shadow-xl shadow-slate-200/50">
+            <div className="hidden lg:flex w-80 bg-white border-l border-slate-200 shrink-0 flex-col z-30 shadow-xl shadow-slate-200/50">
                <div className="p-6 border-b border-slate-100">
                 <h3 className="text-sm font-bold text-slate-800 uppercase tracking-widest flex items-center gap-2">
                   <Activity size={16} className="text-indigo-600" /> Project Intelligence
