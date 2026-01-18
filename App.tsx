@@ -43,7 +43,9 @@ import {
   Wifi,
   Database,
   ArrowRight,
-  LogOut
+  LogOut,
+  Banknote,
+  PenSquare
 } from 'lucide-react';
 import { geminiService } from './services/geminiService';
 import { firebaseService } from './services/firebaseService';
@@ -156,6 +158,7 @@ const App: React.FC = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [milestoneToDelete, setMilestoneToDelete] = useState<string | null>(null);
   const [projectToDelete, setProjectToDelete] = useState<string | null>(null);
+  const [editingProject, setEditingProject] = useState<Project | null>(null);
   
   // Linking State
   const [linkingSourceId, setLinkingSourceId] = useState<string | null>(null);
@@ -171,7 +174,11 @@ const App: React.FC = () => {
     name: '', 
     company: '', 
     type: '', 
-    startDate: new Date().toISOString().split('T')[0] 
+    startDate: new Date().toISOString().split('T')[0],
+    cashRequirement: 0,
+    debtRequirement: 0,
+    valueAtCompletion: 0,
+    profit: 0
   });
 
   const formatDate = (date: Date | number | undefined) => {
@@ -629,6 +636,10 @@ const App: React.FC = () => {
       company: newProject.company || settings.companies[0],
       type: newProject.type || settings.projectTypes[0],
       startDate: new Date(newProject.startDate).getTime(),
+      cashRequirement: newProject.cashRequirement,
+      debtRequirement: newProject.debtRequirement,
+      valueAtCompletion: newProject.valueAtCompletion,
+      profit: newProject.profit,
       milestones,
       createdAt: now,
       updatedAt: now
@@ -638,7 +649,17 @@ const App: React.FC = () => {
     setSelectedProjectId(project.id);
     setIsCreatingProject(false);
     setIsGenerating(false);
-    setNewProject({ name: '', company: '', type: '', startDate: new Date().toISOString().split('T')[0] });
+    setNewProject({ 
+      name: '', company: '', type: '', 
+      startDate: new Date().toISOString().split('T')[0],
+      cashRequirement: 0, debtRequirement: 0, valueAtCompletion: 0, profit: 0
+    });
+  };
+
+  const handleSaveProjectEdit = () => {
+    if (!editingProject) return;
+    setProjects(prev => prev.map(p => p.id === editingProject.id ? { ...editingProject, updatedAt: Date.now() } : p));
+    setEditingProject(null);
   };
 
   const handleUpdateMilestoneName = (mId: string, newName: string) => {
@@ -998,6 +1019,22 @@ const App: React.FC = () => {
                     <span>Last updated {formatDate(p.updatedAt)}</span>
                   </div>
 
+                  {/* Financial Data Summary */}
+                  <div className="grid grid-cols-2 gap-2 mb-4 text-[10px] text-slate-600">
+                     <div className="bg-slate-50 p-1.5 rounded border border-slate-100 flex justify-between">
+                        <span>Cash Req:</span> <span className="font-bold">${p.cashRequirement || 0}k</span>
+                     </div>
+                     <div className="bg-slate-50 p-1.5 rounded border border-slate-100 flex justify-between">
+                        <span>Debt Req:</span> <span className="font-bold">${p.debtRequirement || 0}k</span>
+                     </div>
+                     <div className="bg-slate-50 p-1.5 rounded border border-slate-100 flex justify-between">
+                        <span>VAC:</span> <span className="font-bold">${p.valueAtCompletion || 0}k</span>
+                     </div>
+                     <div className="bg-emerald-50 text-emerald-700 p-1.5 rounded border border-emerald-100 flex justify-between font-bold">
+                        <span>Profit:</span> <span>${p.profit || 0}k</span>
+                     </div>
+                  </div>
+
                   <div className="mb-5 space-y-3">
                     <div>
                       <div className="flex justify-between text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
@@ -1064,6 +1101,7 @@ const App: React.FC = () => {
                     >
                       <Eye size={16} /> Open
                     </button>
+                    <button onClick={() => setEditingProject(p)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="Edit Project Settings"><PenSquare size={16} /></button>
                     <button onClick={() => handleDuplicateProject(p.id)} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-lg transition-colors"><Copy size={16} /></button>
                     <button onClick={() => handleDeleteProject(p.id)} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><X size={16} /></button>
                   </div>
@@ -1624,9 +1662,10 @@ const App: React.FC = () => {
         </div>
       )}
 
+      {/* CREATE PROJECT MODAL - MODIFIED TO INCLUDE FINANCIALS */}
       {isCreatingProject && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-10 overflow-hidden relative border border-slate-200">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl p-8 overflow-hidden relative border border-slate-200">
             {isGenerating && (
               <div className="absolute inset-0 bg-white/90 z-10 flex flex-col items-center justify-center p-8 text-center animate-in zoom-in duration-300">
                 <div className="w-20 h-20 bg-indigo-50 rounded-3xl flex items-center justify-center mb-6 border border-indigo-100 relative">
@@ -1637,9 +1676,9 @@ const App: React.FC = () => {
                 <p className="text-slate-500 text-sm font-medium">Constructing a dependency map and detailed subtask hierarchy for your project.</p>
               </div>
             )}
-            <h3 className="text-2xl font-black text-slate-900 mb-8">Start New Project</h3>
-            <div className="space-y-6">
-              <div>
+            <h3 className="text-2xl font-black text-slate-900 mb-6">Start New Project</h3>
+            <div className="grid grid-cols-2 gap-6 mb-6">
+              <div className="col-span-2">
                 <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Project Identity</label>
                 <input 
                   type="text" 
@@ -1650,7 +1689,21 @@ const App: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Project Start Date</label>
+                <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Company</label>
+                <select className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-5 py-3 outline-none focus:border-indigo-500 text-slate-900 font-bold shadow-sm transition-all" value={newProject.company} onChange={(e) => setNewProject({ ...newProject, company: e.target.value })}>
+                  <option value="">Select...</option>
+                  {(settings.companies || []).map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Category</label>
+                <select className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-5 py-3 outline-none focus:border-indigo-500 text-slate-900 font-bold shadow-sm transition-all" value={newProject.type} onChange={(e) => setNewProject({ ...newProject, type: e.target.value })}>
+                  <option value="">Select...</option>
+                  {(settings.projectTypes || []).map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+              <div className="col-span-2">
+                <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Start Date</label>
                 <input 
                   type="date" 
                   className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-5 py-3 outline-none focus:border-indigo-500 text-slate-900 font-bold shadow-sm transition-all"
@@ -1658,41 +1711,177 @@ const App: React.FC = () => {
                   onChange={(e) => setNewProject({ ...newProject, startDate: e.target.value })}
                 />
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Company</label>
-                  <select className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-5 py-3 outline-none focus:border-indigo-500 text-slate-900 font-bold shadow-sm transition-all" value={newProject.company} onChange={(e) => setNewProject({ ...newProject, company: e.target.value })}>
-                    <option value="">Select...</option>
-                    {(settings.companies || []).map(c => <option key={c} value={c}>{c}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Category</label>
-                  <select className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-5 py-3 outline-none focus:border-indigo-500 text-slate-900 font-bold shadow-sm transition-all" value={newProject.type} onChange={(e) => setNewProject({ ...newProject, type: e.target.value })}>
-                    <option value="">Select...</option>
-                    {(settings.projectTypes || []).map(t => <option key={t} value={t}>{t}</option>)}
-                  </select>
-                </div>
+            </div>
+
+            <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 mb-8">
+               <div className="flex items-center gap-2 mb-3 text-indigo-600 font-bold text-sm uppercase tracking-wider">
+                  <Banknote size={16} /> Financial Projections (in $K)
+               </div>
+               <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Cash Required ($K)</label>
+                    <input 
+                      type="number" 
+                      className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-slate-900 font-bold outline-none focus:border-indigo-500"
+                      value={newProject.cashRequirement || ''}
+                      onChange={(e) => setNewProject({ ...newProject, cashRequirement: parseFloat(e.target.value) || 0 })}
+                      placeholder="0"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Debt Required ($K)</label>
+                    <input 
+                      type="number" 
+                      className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-slate-900 font-bold outline-none focus:border-indigo-500"
+                      value={newProject.debtRequirement || ''}
+                      onChange={(e) => setNewProject({ ...newProject, debtRequirement: parseFloat(e.target.value) || 0 })}
+                      placeholder="0"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Value at Completion ($K)</label>
+                    <input 
+                      type="number" 
+                      className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-slate-900 font-bold outline-none focus:border-indigo-500"
+                      value={newProject.valueAtCompletion || ''}
+                      onChange={(e) => setNewProject({ ...newProject, valueAtCompletion: parseFloat(e.target.value) || 0 })}
+                      placeholder="0"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-emerald-600 uppercase mb-1">Profit ($K)</label>
+                    <input 
+                      type="number" 
+                      className="w-full bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2 text-emerald-800 font-bold outline-none focus:border-emerald-500"
+                      value={newProject.profit || ''}
+                      onChange={(e) => setNewProject({ ...newProject, profit: parseFloat(e.target.value) || 0 })}
+                      placeholder="0"
+                    />
+                  </div>
+               </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <button onClick={() => setIsCreatingProject(false)} className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-black py-4 rounded-2xl transition-all active:scale-95 shadow-sm">Cancel</button>
+              <div className="flex flex-col gap-2">
+                <button 
+                  onClick={() => handleCreateProject(false)} 
+                  disabled={!newProject.name}
+                  className="bg-white border-2 border-indigo-100 hover:border-indigo-600 text-indigo-700 font-bold py-3 rounded-2xl transition-all shadow-sm active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Create Blank
+                </button>
+                <button 
+                  onClick={() => handleCreateProject(true)} 
+                  disabled={!newProject.name}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-black py-4 rounded-2xl shadow-lg shadow-indigo-200 transition-all active:scale-95 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Wand2 size={18} /> AI Generate
+                </button>
               </div>
-              <div className="grid grid-cols-2 gap-4 mt-10">
-                <button onClick={() => setIsCreatingProject(false)} className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-black py-4 rounded-2xl transition-all active:scale-95 shadow-sm">Cancel</button>
-                <div className="flex flex-col gap-2">
-                  <button 
-                    onClick={() => handleCreateProject(false)} 
-                    disabled={!newProject.name}
-                    className="bg-white border-2 border-indigo-100 hover:border-indigo-600 text-indigo-700 font-bold py-3 rounded-2xl transition-all shadow-sm active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Create Blank
-                  </button>
-                  <button 
-                    onClick={() => handleCreateProject(true)} 
-                    disabled={!newProject.name}
-                    className="bg-indigo-600 hover:bg-indigo-700 text-white font-black py-4 rounded-2xl shadow-lg shadow-indigo-200 transition-all active:scale-95 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <Wand2 size={18} /> AI Generate
-                  </button>
-                </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT PROJECT SETTINGS MODAL */}
+      {editingProject && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl p-8 overflow-hidden relative border border-slate-200 animate-in fade-in zoom-in duration-200">
+            <h3 className="text-2xl font-black text-slate-900 mb-6 flex items-center gap-2">
+              <Settings className="text-slate-400" /> Edit Project Settings
+            </h3>
+            <div className="grid grid-cols-2 gap-6 mb-6">
+              <div className="col-span-2">
+                <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Project Name</label>
+                <input 
+                  type="text" 
+                  className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-5 py-3 outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 text-slate-900 font-bold placeholder-slate-300 transition-all"
+                  value={editingProject.name}
+                  onChange={(e) => setEditingProject({ ...editingProject, name: e.target.value })}
+                />
               </div>
+              <div>
+                <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Company</label>
+                <select className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-5 py-3 outline-none focus:border-indigo-500 text-slate-900 font-bold shadow-sm transition-all" value={editingProject.company} onChange={(e) => setEditingProject({ ...editingProject, company: e.target.value })}>
+                  <option value="">Select...</option>
+                  {(settings.companies || []).map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Category</label>
+                <select className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-5 py-3 outline-none focus:border-indigo-500 text-slate-900 font-bold shadow-sm transition-all" value={editingProject.type} onChange={(e) => setEditingProject({ ...editingProject, type: e.target.value })}>
+                  <option value="">Select...</option>
+                  {(settings.projectTypes || []).map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+              <div className="col-span-2">
+                <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Start Date</label>
+                <input 
+                  type="date" 
+                  className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-5 py-3 outline-none focus:border-indigo-500 text-slate-900 font-bold shadow-sm transition-all"
+                  value={new Date(editingProject.startDate).toISOString().split('T')[0]}
+                  onChange={(e) => setEditingProject({ ...editingProject, startDate: new Date(e.target.value).getTime() })}
+                />
+              </div>
+            </div>
+
+            <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 mb-8">
+               <div className="flex items-center gap-2 mb-3 text-indigo-600 font-bold text-sm uppercase tracking-wider">
+                  <Banknote size={16} /> Financial Projections (in $K)
+               </div>
+               <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Cash Required ($K)</label>
+                    <input 
+                      type="number" 
+                      className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-slate-900 font-bold outline-none focus:border-indigo-500"
+                      value={editingProject.cashRequirement || ''}
+                      onChange={(e) => setEditingProject({ ...editingProject, cashRequirement: parseFloat(e.target.value) || 0 })}
+                      placeholder="0"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Debt Required ($K)</label>
+                    <input 
+                      type="number" 
+                      className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-slate-900 font-bold outline-none focus:border-indigo-500"
+                      value={editingProject.debtRequirement || ''}
+                      onChange={(e) => setEditingProject({ ...editingProject, debtRequirement: parseFloat(e.target.value) || 0 })}
+                      placeholder="0"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Value at Completion ($K)</label>
+                    <input 
+                      type="number" 
+                      className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-slate-900 font-bold outline-none focus:border-indigo-500"
+                      value={editingProject.valueAtCompletion || ''}
+                      onChange={(e) => setEditingProject({ ...editingProject, valueAtCompletion: parseFloat(e.target.value) || 0 })}
+                      placeholder="0"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-emerald-600 uppercase mb-1">Profit ($K)</label>
+                    <input 
+                      type="number" 
+                      className="w-full bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2 text-emerald-800 font-bold outline-none focus:border-emerald-500"
+                      value={editingProject.profit || ''}
+                      onChange={(e) => setEditingProject({ ...editingProject, profit: parseFloat(e.target.value) || 0 })}
+                      placeholder="0"
+                    />
+                  </div>
+               </div>
+            </div>
+
+            <div className="flex gap-4">
+              <button onClick={() => setEditingProject(null)} className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-black py-4 rounded-2xl transition-all active:scale-95 shadow-sm">Cancel</button>
+              <button 
+                onClick={handleSaveProjectEdit} 
+                className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-black py-4 rounded-2xl shadow-lg shadow-indigo-200 transition-all active:scale-95 flex items-center justify-center gap-2"
+              >
+                Save Changes
+              </button>
             </div>
           </div>
         </div>

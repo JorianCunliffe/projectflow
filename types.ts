@@ -52,6 +52,12 @@ export interface Project {
   milestones: Milestone[];
   createdAt: number;
   updatedAt: number; // tracks any modification to the project
+  
+  // Financial Fields (in Thousands $K)
+  cashRequirement?: number;
+  debtRequirement?: number;
+  valueAtCompletion?: number;
+  profit?: number;
 }
 
 export interface AppState {
