@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Milestone } from '../types';
 import { MilestonePieChart } from './PieChart';
-import { Plus, ChevronRight, User, Edit2, Wand2, Clock, CalendarCheck, Trash2, ExternalLink, Link as LinkIcon, Move } from 'lucide-react';
+import { Plus, ChevronRight, ChevronLeft, User, Edit2, Wand2, Clock, CalendarCheck, Trash2, ExternalLink, Link as LinkIcon, Move } from 'lucide-react';
 import { getStatusBorderColor } from '../constants';
 
 interface MilestoneNodeProps {
@@ -9,6 +9,7 @@ interface MilestoneNodeProps {
   showSubtasks: boolean;
   onAddSubtask: (milestoneId: string) => void;
   onAddSequence: (milestoneId: string) => void;
+  onAddPrevious: (milestoneId: string) => void;
   onAddParallel: (milestoneId: string) => void;
   onEditSubtask: (milestoneId: string, subtaskIndex: number) => void;
   onUpdateName: (milestoneId: string, newName: string) => void;
@@ -34,6 +35,7 @@ export const MilestoneNode: React.FC<MilestoneNodeProps> = ({
   showSubtasks,
   onAddSubtask,
   onAddSequence,
+  onAddPrevious,
   onAddParallel,
   onEditSubtask,
   onUpdateName,
@@ -256,6 +258,13 @@ export const MilestoneNode: React.FC<MilestoneNodeProps> = ({
               title="AI Brainstorm Subtasks"
             >
               <Wand2 size={14} className={`pointer-events-none ${isThinking ? 'animate-spin' : ''}`} />
+            </button>
+            <button 
+              onClick={(e) => { e.stopPropagation(); onAddPrevious(milestone.id); }}
+              className="p-2 bg-blue-600 text-white rounded-full shadow-lg hover:bg-blue-700 active:scale-90 transition-all border border-blue-500"
+              title="Previous Step"
+            >
+              <ChevronLeft size={14} className="pointer-events-none" />
             </button>
             <button 
               onClick={(e) => { e.stopPropagation(); onAddSequence(milestone.id); }}

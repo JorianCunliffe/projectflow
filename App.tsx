@@ -31,6 +31,7 @@ import {
   Clock,
   RefreshCw,
   Maximize,
+  ZoomIn,
   Type as LucideType,
   Trash2,
   Link as LinkIcon,
@@ -135,6 +136,7 @@ const App: React.FC = () => {
   const [hoveredMilestoneId, setHoveredMilestoneId] = useState<string | null>(null);
   
   const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [zoom, setZoom] = useState(1);
   const [isPanning, setIsPanning] = useState(false);
   const lastMousePos = useRef({ x: 0, y: 0 });
   const containerRef = useRef<HTMLDivElement>(null);
@@ -353,6 +355,7 @@ const App: React.FC = () => {
   }, [activeProject]);
 
   const centerView = () => {
+    setZoom(1); // Standard Zoom Level
     if (!containerRef.current || !canvasData.milestones.length) return;
     const containerWidth = containerRef.current.clientWidth;
     const containerHeight = containerRef.current.clientHeight;
@@ -365,6 +368,32 @@ const App: React.FC = () => {
         y: targetY - (firstM.y || 0)
       });
     }
+  };
+
+  const handleZoomToExtents = () => {
+    if (!containerRef.current) return;
+    const padding = 100;
+    const viewW = containerRef.current.clientWidth;
+    const viewH = containerRef.current.clientHeight;
+    
+    const contentW = canvasData.width;
+    const contentH = canvasData.height;
+
+    // Calculate scale to fit
+    const scaleX = (viewW - padding) / Math.max(contentW, 1);
+    const scaleY = (viewH - padding) / Math.max(contentH, 1);
+    
+    // Clamp zoom at 1.0 (standard) to prevent excessive zooming on small projects
+    // or allow a bit more if tiny (e.g. 1.2) but generally standard max is good UX.
+    const newZoom = Math.min(scaleX, scaleY, 1); 
+
+    setZoom(newZoom);
+    
+    // Center the scaled content in the viewport
+    setPan({
+      x: (viewW - contentW * newZoom) / 2,
+      y: (viewH - contentH * newZoom) / 2
+    });
   };
 
   useEffect(() => {
@@ -741,6 +770,43 @@ const App: React.FC = () => {
     }));
   };
 
+  const handleAddPreviousStep = (pId: string, currentMilestoneId: string) => {
+    setProjects(prev => prev.map(p => {
+      if (p.id !== pId) return p;
+
+      const currentMilestone = p.milestones.find(m => m.id === currentMilestoneId);
+      if (!currentMilestone) return p;
+
+      const newId = `m-${Date.now()}`;
+      
+      const newMilestone: Milestone = {
+        id: newId,
+        name: 'Previous Step',
+        dependsOn: [...(currentMilestone.dependsOn || [])],
+        estimatedDuration: 5,
+        subtasks: []
+      };
+
+      if (currentMilestone.x !== undefined && currentMilestone.y !== undefined) {
+         newMilestone.x = currentMilestone.x - 360;
+         newMilestone.y = currentMilestone.y;
+      }
+
+      const updatedMilestones = p.milestones.map(m => {
+        if (m.id === currentMilestoneId) {
+          return { ...m, dependsOn: [newId] };
+        }
+        return m;
+      });
+
+      return {
+        ...p,
+        updatedAt: Date.now(),
+        milestones: [...updatedMilestones, newMilestone]
+      };
+    }));
+  };
+
   const handleAddSubtask = (mId: string) => {
     setProjects(prev => prev.map(p => {
       if (p.id !== selectedProjectId) return p;
@@ -902,7 +968,14 @@ const App: React.FC = () => {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {filteredProjects.map(p => (
+              {filteredProjects.map(p => {
+                const allTasks = p.milestones.flatMap(m => m.subtasks || []);
+                const totalTasks = allTasks.length;
+                const completedTasks = allTasks.filter(t => t.status === 'Complete').length;
+                const progressPct = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+                const nextTask = allTasks.find(t => t.status === 'Not started');
+
+                return (
                 <div 
                   key={p.id}
                   className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm hover:shadow-md transition-shadow group relative flex flex-col"
@@ -923,6 +996,46 @@ const App: React.FC = () => {
                   <div className="flex items-center gap-2 text-[10px] text-slate-400 mb-4">
                     <RefreshCw size={10} />
                     <span>Last updated {formatDate(p.updatedAt)}</span>
+                  </div>
+
+                  <div className="mb-5 space-y-3">
+                    <div>
+                      <div className="flex justify-between text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                        <span>Progress</span>
+                        <span className="text-slate-900">{progressPct}%</span>
+                      </div>
+                      <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                        <div 
+                          className="bg-indigo-500 h-full rounded-full" 
+                          style={{ width: `${progressPct}%` }}
+                        />
+                      </div>
+                    </div>
+                    
+                    {nextTask ? (
+                      <div className="bg-slate-50 border border-slate-100 rounded-lg p-2.5">
+                         <div className="flex items-center gap-1.5 text-[10px] font-bold text-indigo-600 uppercase tracking-wider mb-1">
+                           <Clock size={10} /> Next Action
+                         </div>
+                         <div className="flex justify-between items-start gap-2">
+                           <span className="text-xs font-semibold text-slate-800 line-clamp-1" title={nextTask.name}>
+                             {nextTask.name}
+                           </span>
+                           {nextTask.assignedTo && (
+                             <div className="shrink-0 flex items-center gap-1 text-[10px] text-slate-500 bg-white px-1.5 py-0.5 rounded border border-slate-200">
+                                <User size={10} />
+                                <span className="max-w-[60px] truncate">{nextTask.assignedTo}</span>
+                             </div>
+                           )}
+                         </div>
+                      </div>
+                    ) : (
+                       <div className="bg-slate-50 border border-slate-100 rounded-lg p-2.5 text-center">
+                          <div className="flex items-center justify-center gap-1.5 text-emerald-600 text-xs font-bold">
+                            <CheckCircle2 size={12} /> All tasks complete
+                          </div>
+                       </div>
+                    )}
                   </div>
 
                   <div className="flex gap-2 mb-6 overflow-x-auto pb-2 scrollbar-hide flex-1">
@@ -955,7 +1068,8 @@ const App: React.FC = () => {
                     <button onClick={() => handleDeleteProject(p.id)} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><X size={16} /></button>
                   </div>
                 </div>
-              ))}
+              );
+            })}
             </div>
           </div>
         ) : (
@@ -979,7 +1093,14 @@ const App: React.FC = () => {
                    <button 
                       onClick={centerView}
                       className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
-                      title="Center View"
+                      title="Standard Zoom (100%)"
+                    >
+                      <ZoomIn size={18} />
+                    </button>
+                    <button 
+                      onClick={handleZoomToExtents}
+                      className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                      title="Zoom to Extents"
                     >
                       <Maximize size={18} />
                     </button>
@@ -1043,10 +1164,10 @@ const App: React.FC = () => {
                                 const offsetX = (mapWidth - scaledWidth) / 2;
                                 const offsetY = (mapHeight - scaledHeight) / 2;
 
-                                const viewportX = -pan.x * scale + offsetX;
-                                const viewportY = -pan.y * scale + offsetY;
-                                const viewportW = (containerRef.current?.clientWidth || 0) * scale;
-                                const viewportH = (containerRef.current?.clientHeight || 0) * scale;
+                                const viewportX = (-pan.x / zoom) * scale + offsetX;
+                                const viewportY = (-pan.y / zoom) * scale + offsetY;
+                                const viewportW = ((containerRef.current?.clientWidth || 0) / zoom) * scale;
+                                const viewportH = ((containerRef.current?.clientHeight || 0) / zoom) * scale;
 
                                 const handleMinimapClick = (e: React.MouseEvent<SVGSVGElement>) => {
                                   const rect = e.currentTarget.getBoundingClientRect();
@@ -1060,8 +1181,8 @@ const App: React.FC = () => {
                                   const containerH = containerRef.current?.clientHeight || 0;
 
                                   setPan({
-                                    x: containerW / 2 - targetContentX,
-                                    y: containerH / 2 - targetContentY
+                                    x: containerW / 2 - targetContentX * zoom,
+                                    y: containerH / 2 - targetContentY * zoom
                                   });
                                 };
 
@@ -1127,8 +1248,8 @@ const App: React.FC = () => {
                 </div>
 
                 <div 
-                  className="absolute transition-transform duration-75 ease-out" 
-                  style={{ transform: `translate(${pan.x}px, ${pan.y}px)` }}
+                  className="absolute transition-transform duration-300 ease-out" 
+                  style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '0 0' }}
                 >
                   <div style={{ width: canvasData.width, height: canvasData.height }}>
                     <svg className="absolute inset-0 pointer-events-none" width={canvasData.width} height={canvasData.height}>
@@ -1170,6 +1291,7 @@ const App: React.FC = () => {
                             showSubtasks={showSubtasks}
                             onAddSubtask={handleAddSubtask}
                             onAddSequence={(id) => handleAddMilestone(activeProject!.id, id, false)}
+                            onAddPrevious={(id) => handleAddPreviousStep(activeProject!.id, id)}
                             onAddParallel={(id) => handleAddMilestone(activeProject!.id, id, true)}
                             onEditSubtask={(mId, sIdx) => setIsEditingSubtask({ mId, sIdx })}
                             onUpdateName={handleUpdateMilestoneName}
