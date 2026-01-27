@@ -14,7 +14,7 @@ import {
   Eye, 
   EyeOff, 
   ChevronLeft,
-  Search,
+  ChevronDown,
   Settings,
   Building,
   Wand2,
@@ -146,7 +146,7 @@ const App: React.FC = () => {
 
   const [filterType, setFilterType] = useState<string>('ALL');
   const [filterCompany, setFilterCompany] = useState<string>('ALL');
-  const [searchQuery, setSearchQuery] = useState('');
+  const [filterAssignee, setFilterAssignee] = useState<string>('ALL');
 
   const [isCreatingProject, setIsCreatingProject] = useState(false);
   const [isEditingSubtask, setIsEditingSubtask] = useState<{ mId: string, sIdx: number | null } | null>(null);
@@ -190,6 +190,26 @@ const App: React.FC = () => {
     return settings.dateFormat === 'DD/MM/YY' ? `${day}/${month}/${year}` : `${month}/${day}/${year}`;
   };
 
+  // Helper to safely parse projects structure which might come from JSON/Firebase as objects instead of arrays
+  const sanitizeProjects = (rawProjects: any): Project[] => {
+    if (!rawProjects) return [];
+    
+    // Handle case where projects is an object (Firebase)
+    const projectsList = Array.isArray(rawProjects) ? rawProjects : Object.values(rawProjects);
+    
+    return projectsList.map((p: any) => ({
+      ...p,
+      milestones: (Array.isArray(p.milestones) ? p.milestones : Object.values(p.milestones || [])).map((m: any) => ({
+        ...m,
+        dependsOn: Array.isArray(m.dependsOn) ? m.dependsOn : Object.values(m.dependsOn || []),
+        // CRITICAL: Ensure subtasks is always an array
+        subtasks: (Array.isArray(m.subtasks) ? m.subtasks : Object.values(m.subtasks || [])).map((s: any) => ({
+          ...s
+        }))
+      }))
+    }));
+  };
+
   // INITIAL LOAD & CLOUD SUBSCRIPTION
   useEffect(() => {
     if (!firebaseService.isConfigured()) {
@@ -198,7 +218,7 @@ const App: React.FC = () => {
       if (saved) {
         try {
           const parsed = JSON.parse(saved);
-          setProjects(parsed.projects || []);
+          setProjects(sanitizeProjects(parsed.projects));
           setSettings({ ...DEFAULT_SETTINGS, ...parsed.settings });
         } catch (e) {
           console.error("Failed to load local state", e);
@@ -215,20 +235,7 @@ const App: React.FC = () => {
         // Flag that this update is from the cloud so we don't save it back immediately
         isRemoteUpdate.current = true;
         
-        // DEEP SANITIZATION: Firebase strips empty arrays and may return Objects for lists
-        const rawProjects = data.projects || [];
-        // Convert Object to Array if necessary (Firebase returns object if keys are not sequential 0,1,2)
-        const projectsList = Array.isArray(rawProjects) ? rawProjects : Object.values(rawProjects);
-
-        const sanitizedProjects = projectsList.map((p: any) => ({
-          ...p,
-          milestones: (Array.isArray(p.milestones) ? p.milestones : Object.values(p.milestones || [])).map((m: any) => ({
-            ...m,
-            dependsOn: m.dependsOn || [],
-            subtasks: m.subtasks || []
-          }))
-        }));
-
+        const sanitizedProjects = sanitizeProjects(data.projects);
         setProjects(sanitizedProjects);
         
         if (data.settings) {
@@ -248,7 +255,9 @@ const App: React.FC = () => {
           try {
             const parsed = JSON.parse(local);
             if (parsed.projects?.length > 0) {
-              firebaseService.save({ projects: parsed.projects, settings: parsed.settings });
+              const cleaned = sanitizeProjects(parsed.projects);
+              setProjects(cleaned);
+              firebaseService.save({ projects: cleaned, settings: parsed.settings });
             }
           } catch(e) {}
         }
@@ -299,13 +308,16 @@ const App: React.FC = () => {
 
   const filteredProjects = useMemo(() => {
     return projects.filter(p => {
-      const matchesSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                            p.company.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesAssignee = filterAssignee === 'ALL' || p.milestones.some(m => {
+        // Double check array status for safety, though sanitizeProjects should have handled it
+        const tasks = Array.isArray(m.subtasks) ? m.subtasks : [];
+        return tasks.some(s => s.assignedTo === filterAssignee);
+      });
       const matchesType = filterType === 'ALL' || p.type === filterType;
       const matchesCompany = filterCompany === 'ALL' || p.company === filterCompany;
-      return matchesSearch && matchesType && matchesCompany;
+      return matchesAssignee && matchesType && matchesCompany;
     });
-  }, [projects, searchQuery, filterType, filterCompany]);
+  }, [projects, filterAssignee, filterType, filterCompany]);
 
   const activeProject = useMemo(() => 
     projects.find(p => p.id === selectedProjectId), 
@@ -553,7 +565,7 @@ const App: React.FC = () => {
         const parsed = JSON.parse(content);
         if (!parsed.projects || !parsed.settings) throw new Error("Invalid backup file format.");
         if (window.confirm("This will overwrite all current projects and settings with the backup data. Are you sure?")) {
-          setProjects(parsed.projects);
+          setProjects(sanitizeProjects(parsed.projects));
           setSettings(parsed.settings);
           alert("Backup restored successfully!");
         }
@@ -957,14 +969,16 @@ const App: React.FC = () => {
               <h2 className="text-2xl font-bold text-slate-800">Your Projects</h2>
               <div className="flex flex-wrap items-center gap-3">
                 <div className="relative">
-                  <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                  <input 
-                    type="text"
-                    placeholder="Search company or name..."
-                    className="bg-white border border-slate-300 rounded-lg pl-9 pr-4 py-1.5 text-sm text-slate-900 placeholder-slate-400 outline-none focus:ring-2 focus:ring-indigo-500 w-64 shadow-sm"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                  />
+                  <User size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                  <select 
+                    className="bg-white border border-slate-300 rounded-lg pl-9 pr-8 py-1.5 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-indigo-500 w-56 shadow-sm appearance-none cursor-pointer"
+                    value={filterAssignee}
+                    onChange={(e) => setFilterAssignee(e.target.value)}
+                  >
+                    <option value="ALL">Filter by Assignee</option>
+                    {(settings.people || []).map(p => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                  <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                 </div>
                 <div className="flex items-center gap-2">
                   <Filter size={18} className="text-slate-400" />
@@ -991,10 +1005,18 @@ const App: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {filteredProjects.map(p => {
                 const allTasks = p.milestones.flatMap(m => m.subtasks || []);
-                const totalTasks = allTasks.length;
-                const completedTasks = allTasks.filter(t => t.status === 'Complete').length;
+                
+                // Calculate stats based on filter
+                const relevantTasks = filterAssignee === 'ALL' 
+                  ? allTasks 
+                  : allTasks.filter(t => t.assignedTo === filterAssignee);
+
+                const totalTasks = relevantTasks.length;
+                const completedTasks = relevantTasks.filter(t => t.status === 'Complete').length;
                 const progressPct = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
-                const nextTask = allTasks.find(t => t.status === 'Not started');
+                
+                // Find next action for this assignee specifically
+                const nextTask = relevantTasks.find(t => t.status === 'Not started');
 
                 return (
                 <div 
@@ -1038,7 +1060,7 @@ const App: React.FC = () => {
                   <div className="mb-5 space-y-3">
                     <div>
                       <div className="flex justify-between text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                        <span>Progress</span>
+                        <span>{filterAssignee !== 'ALL' ? `${filterAssignee}'s Progress` : 'Progress'}</span>
                         <span className="text-slate-900">{progressPct}%</span>
                       </div>
                       <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
@@ -1052,7 +1074,7 @@ const App: React.FC = () => {
                     {nextTask ? (
                       <div className="bg-slate-50 border border-slate-100 rounded-lg p-2.5">
                          <div className="flex items-center gap-1.5 text-[10px] font-bold text-indigo-600 uppercase tracking-wider mb-1">
-                           <Clock size={10} /> Next Action
+                           <Clock size={10} /> Next Action {filterAssignee !== 'ALL' && `for ${filterAssignee}`}
                          </div>
                          <div className="flex justify-between items-start gap-2">
                            <span className="text-xs font-semibold text-slate-800 line-clamp-1" title={nextTask.name}>
@@ -1069,7 +1091,7 @@ const App: React.FC = () => {
                     ) : (
                        <div className="bg-slate-50 border border-slate-100 rounded-lg p-2.5 text-center">
                           <div className="flex items-center justify-center gap-1.5 text-emerald-600 text-xs font-bold">
-                            <CheckCircle2 size={12} /> All tasks complete
+                            <CheckCircle2 size={12} /> {filterAssignee !== 'ALL' ? 'No pending tasks' : 'All tasks complete'}
                           </div>
                        </div>
                     )}
