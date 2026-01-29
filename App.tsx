@@ -45,13 +45,16 @@ import {
   ArrowRight,
   LogOut,
   Banknote,
-  PenSquare
+  PenSquare,
+  ShieldAlert,
+  History
 } from 'lucide-react';
 import { geminiService } from './services/geminiService';
 import { firebaseService } from './services/firebaseService';
 import { getStatusBorderColor } from './constants';
 
 const STORAGE_KEY = 'projectflow_data_v6';
+const BACKUP_KEY = 'projectflow_safety_backup';
 
 const DEFAULT_SETTINGS: AppSettings = {
   projectTypes: [
@@ -167,7 +170,9 @@ const App: React.FC = () => {
   const [showMinimap, setShowMinimap] = useState(true);
 
   // Cloud Sync State
-  const [cloudStatus, setCloudStatus] = useState<'disconnected' | 'syncing' | 'connected'>('disconnected');
+  const [cloudStatus, setCloudStatus] = useState<'disconnected' | 'syncing' | 'connected' | 'error'>('disconnected');
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const [isDataLoaded, setIsDataLoaded] = useState(false); // New flag to prevent overwrite
   const isRemoteUpdate = useRef(false);
 
   const [newProject, setNewProject] = useState({ 
@@ -224,6 +229,7 @@ const App: React.FC = () => {
           console.error("Failed to load local state", e);
         }
       }
+      setIsDataLoaded(true); // Local data loaded
       return;
     }
 
@@ -231,7 +237,12 @@ const App: React.FC = () => {
 
     const unsubscribe = firebaseService.subscribe((data) => {
       setCloudStatus('connected');
+      setSyncError(null);
+      
       if (data) {
+        // SAFETY: Backup to special slot on every successful read
+        localStorage.setItem(BACKUP_KEY, JSON.stringify(data));
+
         // Flag that this update is from the cloud so we don't save it back immediately
         isRemoteUpdate.current = true;
         
@@ -257,11 +268,21 @@ const App: React.FC = () => {
             if (parsed.projects?.length > 0) {
               const cleaned = sanitizeProjects(parsed.projects);
               setProjects(cleaned);
-              firebaseService.save({ projects: cleaned, settings: parsed.settings });
+              firebaseService.save({ projects: cleaned, settings: parsed.settings })
+                .catch(err => setSyncError(err.message));
             }
           } catch(e) {}
         }
       }
+      
+      setIsDataLoaded(true);
+    }, (error) => {
+       // Error Handler
+       console.error("Subscription Error:", error);
+       setCloudStatus('error');
+       setSyncError(error.message);
+       // We still mark data as loaded so UI renders, but user knows it's offline/error
+       setIsDataLoaded(true);
     });
 
     return () => unsubscribe();
@@ -269,6 +290,16 @@ const App: React.FC = () => {
 
   // SAVE CHANGES (Cloud or Local)
   useEffect(() => {
+    // SECURITY: Prevent saving if we haven't confirmed loading yet.
+    if (!isDataLoaded) return;
+
+    // CRITICAL SAFETY: Never save an empty project list. 
+    // This prevents accidental wiping of data if the state is empty.
+    if (projects.length === 0) {
+      // console.warn("Safety Block: Attempted to save empty project list. Ignoring.");
+      return;
+    }
+
     if (isRemoteUpdate.current) {
       isRemoteUpdate.current = false;
       return;
@@ -276,9 +307,17 @@ const App: React.FC = () => {
 
     const saveData = async () => {
       if (firebaseService.isConfigured()) {
+        if (cloudStatus === 'error') return; // Don't try to save if we are in error state
+
         setCloudStatus('syncing');
-        await firebaseService.save({ projects, settings });
-        setCloudStatus('connected');
+        try {
+          await firebaseService.save({ projects, settings });
+          setCloudStatus('connected');
+          setSyncError(null);
+        } catch (err: any) {
+          setCloudStatus('error');
+          setSyncError(err.message || "Failed to save to cloud");
+        }
       } else {
         // Fallback save to local storage
         localStorage.setItem(STORAGE_KEY, JSON.stringify({ projects, settings }));
@@ -288,7 +327,7 @@ const App: React.FC = () => {
     // Debounce save to avoid slamming the DB
     const timer = setTimeout(saveData, 800);
     return () => clearTimeout(timer);
-  }, [projects, settings]);
+  }, [projects, settings, isDataLoaded, cloudStatus]);
 
   const handleSaveFirebaseConfig = () => {
     const success = firebaseService.configure(firebaseConfigInput);
@@ -305,6 +344,28 @@ const App: React.FC = () => {
       firebaseService.disconnect();
     }
   }
+
+  const handleRestoreFromBackup = () => {
+    const backup = localStorage.getItem(BACKUP_KEY);
+    if (!backup) {
+      alert("No auto-backup found.");
+      return;
+    }
+    if (window.confirm("CRITICAL: This will overwrite your current view with the last successful download from the cloud. Are you sure?")) {
+      try {
+        const parsed = JSON.parse(backup);
+        const cleaned = sanitizeProjects(parsed.projects);
+        setProjects(cleaned);
+        if (parsed.settings) setSettings(parsed.settings);
+        
+        // Force a save to cloud to fix the remote state
+        isRemoteUpdate.current = false; // Ensure next effect triggers save
+        alert("Backup restored! Attempting to sync to cloud...");
+      } catch (e) {
+        alert("Failed to parse backup data.");
+      }
+    }
+  };
 
   const filteredProjects = useMemo(() => {
     return projects.filter(p => {
@@ -907,8 +968,39 @@ const App: React.FC = () => {
     });
   };
 
+  // RENDER LOADING SCREEN IF CONFIGURED BUT NOT LOADED
+  if (!isDataLoaded && firebaseService.isConfigured()) {
+    return (
+      <div className="h-screen w-screen flex flex-col items-center justify-center bg-slate-50 text-slate-900">
+         <div className="w-16 h-16 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mb-6"></div>
+         <h2 className="text-xl font-bold">Loading Project Data...</h2>
+         <p className="text-slate-500 mt-2">Syncing with secure cloud storage</p>
+         {syncError && (
+           <div className="mt-8 p-4 bg-red-50 text-red-600 rounded-xl border border-red-200 max-w-md text-center">
+             <div className="font-bold flex items-center justify-center gap-2 mb-2"><ShieldAlert /> Connection Error</div>
+             <p className="text-sm">{syncError}</p>
+             <button 
+               onClick={() => setIsDataLoaded(true)} 
+               className="mt-4 px-4 py-2 bg-white border border-red-200 rounded-lg text-sm font-bold shadow-sm hover:bg-red-50"
+             >
+               Skip & Work Offline (Risky)
+             </button>
+           </div>
+         )}
+      </div>
+    );
+  }
+
   return (
     <div className="h-screen w-screen flex flex-col text-slate-900 bg-slate-50 overflow-hidden">
+      {/* ERROR BANNER */}
+      {syncError && cloudStatus === 'error' && (
+        <div className="bg-red-600 text-white px-4 py-2 text-center text-sm font-bold flex items-center justify-center gap-2 animate-pulse z-[60]">
+          <ShieldAlert size={16} /> CRITICAL SYNC ERROR: Data is NOT saving to cloud. ({syncError})
+          <button onClick={() => setIsCloudSetupOpen(true)} className="underline ml-2 hover:text-red-100">Check Settings</button>
+        </div>
+      )}
+
       <header className="bg-white border-b border-slate-200 px-4 md:px-6 py-4 flex items-center justify-between sticky top-0 z-50 shadow-sm shrink-0">
         <div className="flex items-center gap-3">
           <div className="p-2 bg-indigo-600 rounded-lg text-white">
@@ -921,11 +1013,14 @@ const App: React.FC = () => {
               className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border transition-colors hover:bg-opacity-80 ${
                 cloudStatus === 'connected' ? 'bg-emerald-50 text-emerald-600 border-emerald-200' :
                 cloudStatus === 'syncing' ? 'bg-indigo-50 text-indigo-600 border-indigo-200' :
+                cloudStatus === 'error' ? 'bg-red-50 text-red-600 border-red-200' :
                 'bg-slate-100 text-slate-500 border-slate-200'
               }`}
             >
-              {cloudStatus === 'syncing' ? <RefreshCw size={12} className="animate-spin" /> : <Cloud size={12} />}
-              {cloudStatus === 'syncing' ? 'SYNCING...' : 'CLOUD ACTIVE'}
+              {cloudStatus === 'syncing' ? <RefreshCw size={12} className="animate-spin" /> : 
+               cloudStatus === 'error' ? <ShieldAlert size={12} /> : <Cloud size={12} />}
+              {cloudStatus === 'syncing' ? 'SYNCING...' : 
+               cloudStatus === 'error' ? 'SYNC ERROR' : 'CLOUD ACTIVE'}
             </button>
           ) : (
              <button 
@@ -963,7 +1058,7 @@ const App: React.FC = () => {
       </header>
 
       <main className="flex-1 overflow-hidden relative flex">
-        {!selectedProjectId ? (
+        {!selectedProjectId || !activeProject ? (
           <div className="flex-1 p-4 md:p-8 max-w-7xl mx-auto h-full overflow-y-auto">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
               <h2 className="text-2xl font-bold text-slate-800">Your Projects</h2>
@@ -1145,7 +1240,7 @@ const App: React.FC = () => {
                   <div className="flex items-center gap-3">
                     <div className="flex flex-col">
                       <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Start Date</span>
-                      <span className="text-xs font-bold text-slate-700">{formatDate(activeProject!.startDate)}</span>
+                      <span className="text-xs font-bold text-slate-700">{formatDate(activeProject?.startDate)}</span>
                     </div>
                   </div>
                 </div>
@@ -1485,8 +1580,8 @@ const App: React.FC = () => {
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden border border-white/20 flex flex-col max-h-[90vh]">
             <div className="p-8 border-b border-slate-100 flex items-center justify-between shrink-0">
                <div className="flex items-center gap-4">
-                 <div className="p-3 bg-indigo-50 rounded-2xl text-indigo-600">
-                   <Cloud size={28} />
+                 <div className={`p-3 rounded-2xl ${cloudStatus === 'error' ? 'bg-red-50 text-red-600' : 'bg-indigo-50 text-indigo-600'}`}>
+                   {cloudStatus === 'error' ? <ShieldAlert size={28} /> : <Cloud size={28} />}
                  </div>
                  <div>
                    <h3 className="text-2xl font-black text-slate-900">Cloud Sync Setup</h3>
@@ -1498,20 +1593,56 @@ const App: React.FC = () => {
             
             <div className="p-8 overflow-y-auto">
               {firebaseService.isConfigured() ? (
-                <div className="space-y-6 text-center">
-                  <div className="w-20 h-20 bg-emerald-50 text-emerald-500 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <CheckCircle2 size={40} />
+                <div className="space-y-6">
+                  <div className="text-center">
+                    {cloudStatus === 'error' ? (
+                      <div className="w-20 h-20 bg-red-50 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse">
+                         <ShieldAlert size={40} />
+                      </div>
+                    ) : (
+                      <div className="w-20 h-20 bg-emerald-50 text-emerald-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                         <CheckCircle2 size={40} />
+                      </div>
+                    )}
+                    
+                    <h4 className="text-xl font-bold text-slate-800">
+                      {cloudStatus === 'error' ? 'Sync Paused - Error' : 'You are connected!'}
+                    </h4>
+                    
+                    {cloudStatus === 'error' && (
+                       <p className="text-red-600 font-bold bg-red-50 p-2 rounded-lg mt-2 text-sm">{syncError}</p>
+                    )}
+
+                    <p className="text-slate-500 max-w-md mx-auto mt-2">
+                      Your projects are configured to sync with Firebase.
+                    </p>
+                    <button 
+                      onClick={handleDisconnectFirebase}
+                      className="bg-red-50 text-red-600 font-bold px-6 py-3 rounded-xl hover:bg-red-100 transition-colors flex items-center gap-2 mx-auto mt-6"
+                    >
+                      <LogOut size={18} /> Disconnect & Switch to Local
+                    </button>
                   </div>
-                  <h4 className="text-xl font-bold text-slate-800">You are connected!</h4>
-                  <p className="text-slate-500 max-w-md mx-auto">
-                    Your projects are securely syncing with your Firebase Realtime Database. Any changes you make are instantly available to other users with this configuration.
-                  </p>
-                  <button 
-                    onClick={handleDisconnectFirebase}
-                    className="bg-red-50 text-red-600 font-bold px-6 py-3 rounded-xl hover:bg-red-100 transition-colors flex items-center gap-2 mx-auto mt-6"
-                  >
-                    <LogOut size={18} /> Disconnect & Switch to Local
-                  </button>
+
+                  <div className="border-t border-slate-100 pt-6 mt-6">
+                    <h5 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
+                      <History size={18} className="text-indigo-600" /> Disaster Recovery
+                    </h5>
+                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex items-center justify-between gap-4">
+                      <div>
+                        <p className="text-sm font-bold text-slate-800">Restore from Safety Backup</p>
+                        <p className="text-xs text-slate-500 mt-1">
+                          If your data disappeared, use this to revert to the last successful download from the cloud.
+                        </p>
+                      </div>
+                      <button 
+                        onClick={handleRestoreFromBackup}
+                        className="bg-white border-2 border-indigo-100 hover:border-indigo-600 text-indigo-700 font-bold px-4 py-2 rounded-lg transition-colors whitespace-nowrap active:scale-95"
+                      >
+                        Restore Backup
+                      </button>
+                    </div>
+                  </div>
                 </div>
               ) : (
                 <div className="space-y-8">

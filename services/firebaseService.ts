@@ -3,6 +3,7 @@ import { getDatabase, ref, set, onValue } from 'firebase/database';
 import { Project, AppSettings } from '../types';
 
 const CONFIG_STORAGE_KEY = 'projectflow_firebase_config';
+const DISCONNECT_FLAG_KEY = 'projectflow_manual_disconnect';
 
 // User provided configuration
 const DEFAULT_CONFIG = {
@@ -39,17 +40,26 @@ const parseConfig = (raw: string | null) => {
 };
 
 try {
-  // Check local storage first, otherwise use default
-  const saved = localStorage.getItem(CONFIG_STORAGE_KEY);
-  const config = saved ? parseConfig(saved) : DEFAULT_CONFIG;
-  
-  if (config && config.databaseURL) {
-    const app = initializeApp(config);
-    db = getDatabase(app);
-    isConfigured = true;
+  // Check if manually disconnected to prevent auto-reconnect loop
+  const isManuallyDisconnected = localStorage.getItem(DISCONNECT_FLAG_KEY) === 'true';
+
+  if (!isManuallyDisconnected) {
+    // Check local storage first, otherwise use default
+    const saved = localStorage.getItem(CONFIG_STORAGE_KEY);
+    const config = saved ? parseConfig(saved) : DEFAULT_CONFIG;
+    
+    if (config && config.databaseURL) {
+      try {
+        const app = initializeApp(config);
+        db = getDatabase(app);
+        isConfigured = true;
+      } catch(err) {
+        console.error("Firebase Init Error:", err);
+      }
+    }
   }
 } catch (e) {
-  console.error("Firebase Initialization Error:", e);
+  console.error("Firebase Critical Error:", e);
 }
 
 export const firebaseService = {
@@ -59,6 +69,7 @@ export const firebaseService = {
     const config = parseConfig(configString);
     if (config && config.databaseURL) {
       localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(config));
+      localStorage.removeItem(DISCONNECT_FLAG_KEY); // Clear manual disconnect flag
       window.location.reload();
       return true;
     }
@@ -67,21 +78,35 @@ export const firebaseService = {
 
   disconnect: () => {
     localStorage.removeItem(CONFIG_STORAGE_KEY);
+    localStorage.setItem(DISCONNECT_FLAG_KEY, 'true'); // Set manual disconnect flag
     window.location.reload();
   },
 
-  subscribe: (callback: (data: { projects: Project[], settings: AppSettings } | null) => void) => {
+  subscribe: (
+    onData: (data: { projects: Project[], settings: AppSettings } | null) => void,
+    onError?: (error: Error) => void
+  ) => {
     if (!db) return () => {};
 
     const dataRef = ref(db, 'projectflow_v1');
     return onValue(dataRef, (snapshot) => {
       const data = snapshot.val();
-      callback(data);
+      onData(data);
+    }, (error) => {
+      console.error("Firebase Read Error:", error);
+      if (onError) onError(error);
     });
   },
 
   save: async (data: { projects: Project[], settings: AppSettings }) => {
-    if (!db) return;
+    if (!db) throw new Error("Database not initialized");
+    
+    // SAFETY GUARD: Prevent writing empty project lists
+    if (!data.projects || data.projects.length === 0) {
+      console.error("FIREBASE SAFETY: Attempted to write empty project list. Operation blocked.");
+      throw new Error("Safety Block: Cannot save empty project list.");
+    }
+
     const dataRef = ref(db, 'projectflow_v1');
     
     // Sanitize data to remove undefined values which Firebase rejects.
