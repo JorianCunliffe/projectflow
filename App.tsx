@@ -336,7 +336,7 @@ const App: React.FC = () => {
       setIsCloudSetupOpen(false);
       // Window will reload
     } else {
-      setConfigError("Invalid configuration format. Please ensure it contains 'databaseURL'.");
+      setConfigError("Invalid configuration format. Please ensure it contains 'databaseURL' (or 'databaseUrl').");
     }
   };
 

@@ -21,10 +21,25 @@ let db: any = null;
 let isConfigured = false;
 
 // specific parsing to handle the user pasting the raw JS object from Firebase console
+const normalizeConfigKeys = (config: Record<string, any>) => {
+  const normalized = { ...config };
+
+  if (!normalized.apiKey) {
+    normalized.apiKey = normalized.apikey || normalized.api_key || normalized.API_KEY;
+  }
+
+  if (!normalized.databaseURL) {
+    normalized.databaseURL = normalized.databaseUrl || normalized.database_url || normalized.DATABASE_URL;
+  }
+
+  return normalized;
+};
+
 const parseConfig = (raw: string | null) => {
   if (!raw) return null;
   try {
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    return normalizeConfigKeys(parsed);
   } catch (e) {
     try {
       const cleaned = raw
@@ -32,7 +47,8 @@ const parseConfig = (raw: string | null) => {
         .replace(/;/g, '') 
         .replace(/(\w+):/g, '"$1":') 
         .replace(/'/g, '"'); 
-      return JSON.parse(cleaned);
+      const parsed = JSON.parse(cleaned);
+      return normalizeConfigKeys(parsed);
     } catch (e2) {
       return null;
     }
