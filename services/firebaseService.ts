@@ -21,25 +21,10 @@ let db: any = null;
 let isConfigured = false;
 
 // specific parsing to handle the user pasting the raw JS object from Firebase console
-const normalizeConfigKeys = (config: Record<string, any>) => {
-  const normalized = { ...config };
-
-  if (!normalized.apiKey) {
-    normalized.apiKey = normalized.apikey || normalized.api_key || normalized.API_KEY;
-  }
-
-  if (!normalized.databaseURL) {
-    normalized.databaseURL = normalized.databaseUrl || normalized.database_url || normalized.DATABASE_URL;
-  }
-
-  return normalized;
-};
-
 const parseConfig = (raw: string | null) => {
   if (!raw) return null;
   try {
-    const parsed = JSON.parse(raw);
-    return normalizeConfigKeys(parsed);
+    return JSON.parse(raw);
   } catch (e) {
     try {
       const cleaned = raw
@@ -47,8 +32,7 @@ const parseConfig = (raw: string | null) => {
         .replace(/;/g, '') 
         .replace(/(\w+):/g, '"$1":') 
         .replace(/'/g, '"'); 
-      const parsed = JSON.parse(cleaned);
-      return normalizeConfigKeys(parsed);
+      return JSON.parse(cleaned);
     } catch (e2) {
       return null;
     }
@@ -65,17 +49,13 @@ try {
     const config = saved ? parseConfig(saved) : DEFAULT_CONFIG;
     
     if (config && config.databaseURL) {
-      try {
-        const app = initializeApp(config);
-        db = getDatabase(app);
-        isConfigured = true;
-      } catch(err) {
-        console.error("Firebase Init Error:", err);
-      }
+      const app = initializeApp(config);
+      db = getDatabase(app);
+      isConfigured = true;
     }
   }
 } catch (e) {
-  console.error("Firebase Critical Error:", e);
+  console.error("Firebase Initialization Error:", e);
 }
 
 export const firebaseService = {
@@ -98,31 +78,18 @@ export const firebaseService = {
     window.location.reload();
   },
 
-  subscribe: (
-    onData: (data: { projects: Project[], settings: AppSettings } | null) => void,
-    onError?: (error: Error) => void
-  ) => {
+  subscribe: (callback: (data: { projects: Project[], settings: AppSettings } | null) => void) => {
     if (!db) return () => {};
 
     const dataRef = ref(db, 'projectflow_v1');
     return onValue(dataRef, (snapshot) => {
       const data = snapshot.val();
-      onData(data);
-    }, (error) => {
-      console.error("Firebase Read Error:", error);
-      if (onError) onError(error);
+      callback(data);
     });
   },
 
   save: async (data: { projects: Project[], settings: AppSettings }) => {
-    if (!db) throw new Error("Database not initialized");
-    
-    // SAFETY GUARD: Prevent writing empty project lists
-    if (!data.projects || data.projects.length === 0) {
-      console.error("FIREBASE SAFETY: Attempted to write empty project list. Operation blocked.");
-      throw new Error("Safety Block: Cannot save empty project list.");
-    }
-
+    if (!db) return;
     const dataRef = ref(db, 'projectflow_v1');
     
     // Sanitize data to remove undefined values which Firebase rejects.
@@ -133,7 +100,6 @@ export const firebaseService = {
       lastUpdated: Date.now()
     }));
 
-    console.log('[firebaseService.save] calling set() at services/firebaseService.ts');
     await set(dataRef, cleanData);
   }
 };
