@@ -105,7 +105,10 @@ export const App: React.FC = () => {
   const [cloudStatus, setCloudStatus] = useState<'disconnected' | 'syncing' | 'connected' | 'error'>('disconnected');
   const [syncError, setSyncError] = useState<string | null>(null);
   const [isDataLoaded, setIsDataLoaded] = useState(false); 
+  
+  // Safety Locks
   const isRemoteUpdate = useRef(false);
+  const isDbInitialized = useRef(false); // CRITICAL: Prevents overwriting DB with empty local state on load
 
   const formatDate = (date: Date | number | undefined) => {
     if (!date) return 'N/A';
@@ -144,6 +147,7 @@ export const App: React.FC = () => {
         }
       }
       setIsDataLoaded(true);
+      isDbInitialized.current = true; // Local storage is "initialized" immediately
       return;
     }
 
@@ -153,6 +157,10 @@ export const App: React.FC = () => {
       setCloudStatus('connected');
       setSyncError(null);
       
+      // Mark DB as initialized. We have successfully read from the server.
+      // Even if data is null (empty DB), we are now safe to write future changes.
+      isDbInitialized.current = true; 
+
       if (data) {
         localStorage.setItem(BACKUP_KEY, JSON.stringify(data));
         isRemoteUpdate.current = true;
@@ -171,18 +179,14 @@ export const App: React.FC = () => {
           }));
         }
       } else {
-        const local = localStorage.getItem(STORAGE_KEY);
-        if (local) {
-          try {
-            const parsed = JSON.parse(local);
-            if (parsed.projects?.length > 0) {
-              const cleaned = sanitizeProjects(parsed.projects);
-              setProjects(cleaned);
-              firebaseService.save({ projects: cleaned, settings: parsed.settings })
-                .catch(err => setSyncError(err.message));
-            }
-          } catch(e) {}
-        }
+        // DB is empty. Handle initialization if needed, or leave as empty array.
+        // We do NOT want to overwrite local storage backup if DB is empty unless explicitly intended, 
+        // but for now we follow the "Server is Truth" model.
+        
+        // Use local storage if it exists and DB is empty? (Optional safety feature, but risky if intentional delete)
+        // For this implementation: Server is empty -> App is empty.
+        isRemoteUpdate.current = true;
+        setProjects([]);
       }
       
       setIsDataLoaded(true);
@@ -191,6 +195,8 @@ export const App: React.FC = () => {
        setCloudStatus('error');
        setSyncError(error.message);
        setIsDataLoaded(true);
+       // Note: We do NOT set isDbInitialized to true on error. 
+       // This prevents saving local changes while offline/error state if we haven't synced yet.
     });
 
     return () => unsubscribe();
@@ -198,7 +204,10 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     if (!isDataLoaded) return;
-    if (projects.length === 0) return;
+    
+    // CRITICAL SAFETY CHECK
+    // If we are in cloud mode, we must NEVER save until we have confirmed receipt of the initial data.
+    if (firebaseService.isConfigured() && !isDbInitialized.current) return;
 
     if (isRemoteUpdate.current) {
       isRemoteUpdate.current = false;
@@ -223,6 +232,7 @@ export const App: React.FC = () => {
       }
     };
 
+    // Debounce saves
     const timer = setTimeout(saveData, 800);
     return () => clearTimeout(timer);
   }, [projects, settings, isDataLoaded, cloudStatus]);
