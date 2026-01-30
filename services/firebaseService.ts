@@ -78,14 +78,22 @@ export const firebaseService = {
     window.location.reload();
   },
 
-  subscribe: (callback: (data: { projects: Project[], settings: AppSettings } | null) => void) => {
+  subscribe: (
+    callback: (data: { projects: Project[], settings: AppSettings } | null) => void,
+    onError?: (error: Error) => void
+  ) => {
     if (!db) return () => {};
 
     const dataRef = ref(db, 'projectflow_v1');
-    return onValue(dataRef, (snapshot) => {
-      const data = snapshot.val();
-      callback(data);
-    });
+    return onValue(dataRef, 
+      (snapshot) => {
+        const data = snapshot.val();
+        callback(data);
+      },
+      (error) => {
+        if (onError) onError(error);
+      }
+    );
   },
 
   save: async (data: { projects: Project[], settings: AppSettings }) => {
