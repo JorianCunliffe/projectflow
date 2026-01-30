@@ -311,6 +311,7 @@ const App: React.FC = () => {
 
         setCloudStatus('syncing');
         try {
+          console.log('[App.tsx saveData] calling firebaseService.save (App.tsx)');
           await firebaseService.save({ projects, settings });
           setCloudStatus('connected');
           setSyncError(null);

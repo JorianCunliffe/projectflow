@@ -117,6 +117,7 @@ export const firebaseService = {
       lastUpdated: Date.now()
     }));
 
+    console.log('[firebaseService.save] calling set() at services/firebaseService.ts');
     await set(dataRef, cleanData);
   }
 };
