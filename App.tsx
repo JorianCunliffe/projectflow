@@ -671,6 +671,34 @@ export const App: React.FC = () => {
       setProjects(prev => prev.map(p => p.id === selectedProjectId ? { ...p, milestones: p.milestones.map(m => m.id === mId ? { ...m, subtasks: m.subtasks.filter((_, i) => i !== sIdx) } : m) } : p));
   };
 
+  const handleKanbanStatusChange = (pId: string, mId: string, sIdx: number, newStatus: string) => {
+    setProjects(prev => prev.map(p => {
+      if (p.id !== pId) return p;
+      return {
+        ...p,
+        updatedAt: Date.now(),
+        milestones: p.milestones.map(m => {
+          if (m.id !== mId) return m;
+          return {
+            ...m,
+            subtasks: m.subtasks.map((s, idx) => {
+              if (idx !== sIdx) return s;
+              
+              const isNowComplete = newStatus === 'Complete';
+              const wasComplete = s.status === 'Complete';
+              let completedAt = s.completedAt;
+
+              if (isNowComplete && !wasComplete) completedAt = Date.now();
+              if (!isNowComplete && wasComplete) completedAt = undefined;
+
+              return { ...s, status: newStatus, completedAt };
+            })
+          };
+        })
+      };
+    }));
+  };
+
   // Loading Screen
   if (!isDataLoaded && firebaseService.isConfigured()) {
     return (
@@ -819,6 +847,7 @@ export const App: React.FC = () => {
               setSelectedProjectId(projectId);
               setIsEditingSubtask({ mId: milestoneId, sIdx: subtaskIndex });
             }}
+            onStatusChange={handleKanbanStatusChange}
           />
         ) : (
           /* STANDARD VIEW (Dashboard or Project Map) */
@@ -1026,5 +1055,3 @@ export const App: React.FC = () => {
     </div>
   );
 };
-
-export default App;

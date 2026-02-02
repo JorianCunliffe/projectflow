@@ -7,14 +7,37 @@ interface KanbanCardProps {
   task: Subtask;
   milestoneName: string;
   projectName: string;
+  projectId: string;
+  milestoneId: string;
+  subtaskIndex: number;
   onClick?: () => void;
 }
 
-export const KanbanCard: React.FC<KanbanCardProps> = ({ task, milestoneName, projectName, onClick }) => {
+export const KanbanCard: React.FC<KanbanCardProps> = ({ 
+  task, 
+  milestoneName, 
+  projectName, 
+  projectId,
+  milestoneId,
+  subtaskIndex,
+  onClick 
+}) => {
+  const handleDragStart = (e: React.DragEvent) => {
+    e.dataTransfer.setData('application/json', JSON.stringify({ 
+      projectId, 
+      milestoneId, 
+      subtaskIndex 
+    }));
+    e.dataTransfer.effectAllowed = 'move';
+    // Optional: Set a custom drag image or styling here if needed
+  };
+
   return (
     <div
+      draggable
+      onDragStart={handleDragStart}
       onClick={onClick}
-      className="bg-white p-3 rounded-lg shadow-sm border-l-4 hover:shadow-md transition-all cursor-pointer mb-2 group animate-in fade-in duration-300 relative"
+      className="bg-white p-3 rounded-lg shadow-sm border-l-4 hover:shadow-md transition-all cursor-grab active:cursor-grabbing mb-2 group animate-in fade-in duration-300 relative select-none"
       style={{ borderLeftColor: getStatusBorderColor(task.status) }}
     >
       <div className="flex justify-between items-start mb-1">

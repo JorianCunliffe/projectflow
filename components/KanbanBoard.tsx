@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Project, AppSettings, Subtask } from '../types';
 import { KanbanCard } from './KanbanCard';
 
@@ -9,6 +9,7 @@ interface KanbanBoardProps {
   memberFilter?: string | null;
   projectFilter?: string | null;
   onTaskClick?: (projectId: string, milestoneId: string, subtaskIndex: number) => void;
+  onStatusChange?: (projectId: string, milestoneId: string, subtaskIndex: number, newStatus: string) => void;
 }
 
 interface FlattenedTask {
@@ -27,9 +28,11 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
   grouping,
   memberFilter,
   projectFilter,
-  onTaskClick
+  onTaskClick,
+  onStatusChange
 }) => {
-  
+  const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
+
   // 1. Flatten Data based on filters
   const allTasks = useMemo(() => {
     const tasks: FlattenedTask[] = [];
@@ -88,6 +91,33 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
   // 3. Define Columns (Status)
   const columns = settings.statuses || ['Not started', 'Started', 'Held', 'Complete'];
 
+  const handleDragOver = (e: React.DragEvent, columnId: string) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (dragOverColumn !== columnId) {
+      setDragOverColumn(columnId);
+    }
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOverColumn(null);
+  };
+
+  const handleDrop = (e: React.DragEvent, newStatus: string) => {
+    e.preventDefault();
+    setDragOverColumn(null);
+    const data = e.dataTransfer.getData('application/json');
+    if (data) {
+      try {
+        const { projectId, milestoneId, subtaskIndex } = JSON.parse(data);
+        onStatusChange?.(projectId, milestoneId, subtaskIndex, newStatus);
+      } catch (err) {
+        console.error("Failed to parse drag data", err);
+      }
+    }
+  };
+
   return (
     <div className="flex-1 overflow-auto bg-slate-50/50 p-6 h-full min-w-[1000px] flex flex-col">
       {/* Header Row (Statuses) */}
@@ -134,10 +164,20 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                     return matchesStatus && matchesLane;
                   });
 
+                  const cellId = `${lane.id}-${status}`;
+                  const isOver = dragOverColumn === cellId;
+
                   return (
                     <div 
-                      key={`${lane.id}-${status}`} 
-                      className="flex-1 min-w-[280px] bg-slate-100/30 rounded-xl p-2 border border-dashed border-slate-200 hover:bg-slate-100/80 transition-colors flex flex-col gap-2 min-h-[120px]"
+                      key={cellId}
+                      className={`flex-1 min-w-[280px] rounded-xl p-2 border transition-all flex flex-col gap-2 min-h-[120px] ${
+                        isOver 
+                          ? 'bg-indigo-50/50 border-indigo-300 ring-2 ring-indigo-200 ring-inset' 
+                          : 'bg-slate-100/30 border-slate-200 border-dashed hover:bg-slate-100/80'
+                      }`}
+                      onDragOver={(e) => handleDragOver(e, cellId)}
+                      onDragLeave={handleDragLeave}
+                      onDrop={(e) => handleDrop(e, status)}
                     >
                       {tasksInCell.map(flatTask => (
                         <KanbanCard 
@@ -145,6 +185,9 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                           task={flatTask.task}
                           milestoneName={flatTask.milestoneName}
                           projectName={flatTask.projectName}
+                          projectId={flatTask.projectId}
+                          milestoneId={flatTask.milestoneId}
+                          subtaskIndex={flatTask.subtaskIndex}
                           onClick={() => onTaskClick?.(flatTask.projectId, flatTask.milestoneId, flatTask.subtaskIndex)}
                         />
                       ))}
