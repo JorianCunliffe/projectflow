@@ -23,17 +23,42 @@ let isConfigured = false;
 // specific parsing to handle the user pasting the raw JS object from Firebase console
 const parseConfig = (raw: string | null) => {
   if (!raw) return null;
+  
+  // 1. Try strict JSON parse first (fastest/safest)
   try {
     return JSON.parse(raw);
   } catch (e) {
+    // 2. If JSON fails, assume it's a JavaScript Object Literal (e.g. copied from code)
     try {
-      const cleaned = raw
-        .replace(/const\s+\w+\s*=\s*/, '') 
-        .replace(/;/g, '') 
-        .replace(/(\w+):/g, '"$1":') 
-        .replace(/'/g, '"'); 
-      return JSON.parse(cleaned);
+      // Remove comments (single line // and multi-line /* */)
+      // This is crucial because { ... } might contain comments which new Function handles, 
+      // but if the braces are commented out, we need to know.
+      // Also, finding the first '{' is safer if comments are removed.
+      const cleaned = raw.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
+      
+      const firstBrace = cleaned.indexOf('{');
+      const lastBrace = cleaned.lastIndexOf('}');
+      
+      if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
+         return null;
+      }
+      
+      // Extract just the object literal part: { key: "value", ... }
+      const objectLiteral = cleaned.substring(firstBrace, lastBrace + 1);
+      
+      // Use Function constructor to parse the JS object literal.
+      // This natively handles:
+      // - Trailing commas
+      // - Unquoted keys
+      // - Single vs Double quotes
+      // - Whitespace
+      // Note: We use the cleaned string to ensure no malicious code outside the braces runs,
+      // though inside the braces code execution is still possible (e.g. { a: (()=>{})() }).
+      // Given this is a user-configuration input for their own local app, this is acceptable.
+      const fn = new Function('return ' + objectLiteral);
+      return fn();
     } catch (e2) {
+      console.error("Config parsing failed:", e2);
       return null;
     }
   }
