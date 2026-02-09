@@ -4,9 +4,11 @@ import {
   Project, 
   Milestone, 
   Subtask, 
-  AppSettings 
+  AppSettings,
+  TimelineMarker as TimelineMarkerType
 } from './types';
 import { MilestoneNode } from './components/MilestoneNode';
+import { TimelineMarker } from './components/TimelineMarker';
 import { 
   Plus, 
   Layers, 
@@ -30,7 +32,8 @@ import {
   Users,
   Briefcase,
   Printer,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Flag
 } from 'lucide-react';
 import { geminiService } from './services/geminiService';
 import { firebaseService } from './services/firebaseService';
@@ -155,6 +158,7 @@ export const App: React.FC = () => {
       .filter((p: any) => p && p.name && p.name.trim() !== '') // Clean up ghosts/blank projects
       .map((p: any) => ({
         ...p,
+        markers: (Array.isArray(p.markers) ? p.markers : Object.values(p.markers || [])).map((m:any) => ({...m})),
         milestones: (Array.isArray(p.milestones) ? p.milestones : Object.values(p.milestones || [])).map((m: any) => ({
           ...m,
           dependsOn: Array.isArray(m.dependsOn) ? m.dependsOn : Object.values(m.dependsOn || []),
@@ -296,7 +300,7 @@ export const App: React.FC = () => {
   );
 
   const canvasData = useMemo(() => {
-    if (!activeProject) return { milestones: [], width: 0, height: 0 };
+    if (!activeProject) return { milestones: [], width: 0, height: 0, markerTop: 0, markerHeight: 0 };
     const levels: Record<string, number> = {};
     const getLevel = (id: string): number => {
       if (levels[id] !== undefined) return levels[id];
@@ -321,7 +325,14 @@ export const App: React.FC = () => {
     const PADDING_Y = 400;
     const maxLevel = Math.max(...Object.values(levels), 0);
     const maxInLevel = Math.max(...Object.values(groupedByLevel).map(g => g.length), 0);
-    const width = Math.max((maxLevel + 1) * HORIZONTAL_GAP + PADDING_X * 2, 2500);
+    
+    // Calculate Marker Bounds
+    const markers = activeProject.markers || [];
+    const maxMarkerX = Math.max(...markers.map(m => m.x), 0);
+    
+    // Width Logic: Ensure canvas accounts for milestones AND markers
+    const contentWidth = Math.max((maxLevel + 1) * HORIZONTAL_GAP + PADDING_X * 2, maxMarkerX + PADDING_X);
+    const width = Math.max(contentWidth, 2500);
     const height = Math.max((maxInLevel + 1) * VERTICAL_GAP + PADDING_Y * 2, 1800);
     const startX = PADDING_X;
     const centerY = height / 2;
@@ -339,7 +350,18 @@ export const App: React.FC = () => {
 
       return { ...m, x, y };
     });
-    return { milestones, width, height };
+
+    // Calculate Y Bounds for markers based on actual node positions
+    const allYs = milestones.map(m => m.y);
+    const hasNodes = allYs.length > 0;
+    const minY = hasNodes ? Math.min(...allYs) : centerY - 200;
+    const maxY = hasNodes ? Math.max(...allYs) : centerY + 200;
+    
+    const markerTop = minY - 120; // Top padding
+    const markerBottom = maxY + 300; // Bottom padding (accommodate list growth)
+    const markerHeight = markerBottom - markerTop;
+
+    return { milestones, width, height, markerTop, markerHeight };
   }, [activeProject]);
 
   const centerView = () => {
@@ -855,6 +877,104 @@ export const App: React.FC = () => {
       };
     }));
   };
+  
+  // NEW: Handle creating task from Kanban View
+  const handleKanbanCreateTask = (pId: string, mId: string, task: Partial<Subtask>) => {
+     setProjects(prev => prev.map(p => {
+       if (p.id !== pId) return p;
+       return {
+         ...p,
+         updatedAt: Date.now(),
+         milestones: p.milestones.map(m => {
+           if (m.id !== mId) return m;
+           return {
+             ...m,
+             subtasks: [...(m.subtasks || []), {
+               id: `s-${Date.now()}`,
+               name: task.name || 'New Task',
+               description: task.description || '',
+               assignedTo: task.assignedTo || '',
+               notes: task.notes || '',
+               status: task.status || 'Not started',
+               dueDate: task.dueDate,
+               isImportant: task.isImportant
+             }]
+           }
+         })
+       }
+     }));
+  };
+
+  // NEW: Handle deleting task from Kanban View (Context aware)
+  const handleKanbanDeleteTask = (pId: string, mId: string, sIdx: number) => {
+     setProjects(prev => prev.map(p => {
+       if (p.id !== pId) return p;
+       return {
+         ...p,
+         updatedAt: Date.now(),
+         milestones: p.milestones.map(m => {
+           if (m.id !== mId) return m;
+           return {
+             ...m,
+             subtasks: m.subtasks.filter((_, idx) => idx !== sIdx)
+           }
+         })
+       }
+     }));
+  };
+
+  // Marker Handlers
+  const handleAddMarker = () => {
+    if (!activeProject || !containerRef.current) return;
+    
+    // Calculate center of view
+    const viewW = containerRef.current.clientWidth;
+    const centerX = (viewW / 2 - pan.x) / zoom;
+    
+    setProjects(prev => prev.map(p => {
+      if (p.id !== selectedProjectId) return p;
+      return {
+        ...p,
+        updatedAt: Date.now(),
+        markers: [
+          ...(p.markers || []),
+          { id: `k-${Date.now()}`, name: 'New Phase', x: centerX }
+        ]
+      }
+    }));
+  };
+
+  const handleMoveMarker = (id: string, newX: number) => {
+    setProjects(prev => prev.map(p => {
+      if (p.id !== selectedProjectId) return p;
+      return {
+        ...p,
+        markers: (p.markers || []).map(m => m.id === id ? { ...m, x: newX } : m)
+      };
+    }));
+  };
+
+  const handleUpdateMarkerName = (id: string, name: string) => {
+    setProjects(prev => prev.map(p => {
+      if (p.id !== selectedProjectId) return p;
+      return {
+        ...p,
+        updatedAt: Date.now(),
+        markers: (p.markers || []).map(m => m.id === id ? { ...m, name } : m)
+      };
+    }));
+  };
+
+  const handleDeleteMarker = (id: string) => {
+    setProjects(prev => prev.map(p => {
+       if (p.id !== selectedProjectId) return p;
+       return {
+         ...p,
+         updatedAt: Date.now(),
+         markers: (p.markers || []).filter(m => m.id !== id)
+       }
+    }));
+  };
 
   // Loading Screen
   if (!isDataLoaded && firebaseService.isConfigured()) {
@@ -1008,6 +1128,8 @@ export const App: React.FC = () => {
               setIsEditingSubtask({ mId: milestoneId, sIdx: subtaskIndex });
             }}
             onStatusChange={handleKanbanStatusChange}
+            onDeleteTask={handleKanbanDeleteTask}
+            onCreateTask={handleKanbanCreateTask}
           />
         ) : (
           /* STANDARD VIEW (Dashboard or Project Map) */
@@ -1045,6 +1167,7 @@ export const App: React.FC = () => {
                        <button onClick={centerView} className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="Zoom Reset"><ZoomIn size={18} /></button>
                        <button onClick={handleZoomToExtents} className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="Zoom Extents"><Maximize size={18} /></button>
                        <button onClick={handleResetLayout} className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="Reset Layout"><Layout size={18} /></button>
+                       <button onClick={handleAddMarker} className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="Add Timeline Marker"><Flag size={18} /></button>
                        <button onClick={handlePrint} className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="Print Project"><Printer size={18} /></button>
                        <button onClick={handleDownloadSnapshot} className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="Download Image"><ImageIcon size={18} /></button>
                        <div className="flex bg-slate-100 p-1 rounded-lg mr-2">
@@ -1066,6 +1189,7 @@ export const App: React.FC = () => {
                     onMouseMove={handleMouseMove}
                     onMouseUp={handleMouseUp}
                     onMouseLeave={handleMouseUp}
+                    data-zoom={zoom} // Pass zoom to children via data attribute hack or context (hack used for simplicity here in TimelineMarker)
                   >
                     {/* MINIMAP */}
                     <div className="absolute top-6 right-6 z-40 flex flex-col items-end gap-2 pointer-events-none print:hidden">
@@ -1106,8 +1230,25 @@ export const App: React.FC = () => {
 
                     {/* MAIN SVG CANVAS */}
                     <div className="absolute transition-transform duration-300 ease-out" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '0 0' }}>
-                      <div id="mindmap-content" style={{ width: canvasData.width, height: canvasData.height }}>
-                        <svg className="absolute inset-0 pointer-events-none" width={canvasData.width} height={canvasData.height}>
+                      <div id="mindmap-content" style={{ width: canvasData.width, height: canvasData.height, position: 'relative' }}>
+                        
+                        {/* 1. Timeline Markers (Rendered absolute behind milestones but separate from SVG lines) */}
+                        <div className="absolute inset-0 z-0">
+                           {(activeProject.markers || []).map(marker => (
+                              <TimelineMarker 
+                                key={marker.id}
+                                marker={marker}
+                                top={canvasData.markerTop}
+                                height={canvasData.markerHeight}
+                                onMove={handleMoveMarker}
+                                onUpdateName={handleUpdateMarkerName}
+                                onDelete={handleDeleteMarker}
+                              />
+                           ))}
+                        </div>
+
+                        {/* 2. Connection Lines SVG */}
+                        <svg className="absolute inset-0 pointer-events-none z-0" width={canvasData.width} height={canvasData.height}>
                           <defs>
                             <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#cbd5e1" /></marker>
                             <marker id="arrow-active" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#6366f1" /></marker>
@@ -1122,7 +1263,9 @@ export const App: React.FC = () => {
                             );
                           }))}
                         </svg>
-                        <div className="absolute inset-0 pointer-events-none">
+
+                        {/* 3. Milestone Nodes */}
+                        <div className="absolute inset-0 pointer-events-none z-10">
                           {canvasData.milestones.map(m => {
                             // Calculate parents and children for this milestone node to support link deletion
                             const parents = (m.dependsOn || []).map(pid => {

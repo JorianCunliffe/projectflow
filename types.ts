@@ -49,6 +49,12 @@ export interface Milestone {
   y?: number;
 }
 
+export interface TimelineMarker {
+  id: string;
+  name: string;
+  x: number;
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -56,6 +62,7 @@ export interface Project {
   type: string;
   startDate: number; // timestamp
   milestones: Milestone[];
+  markers?: TimelineMarker[];
   createdAt: number;
   updatedAt: number; // tracks any modification to the project
   

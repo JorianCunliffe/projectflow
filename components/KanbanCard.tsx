@@ -1,5 +1,5 @@
 import React from 'react';
-import { User, AlertTriangle, Clock, Calendar } from 'lucide-react';
+import { User, AlertTriangle, Clock, Calendar, Trash2 } from 'lucide-react';
 import { Subtask } from '../types';
 import { getStatusBorderColor } from '../constants';
 
@@ -11,6 +11,7 @@ interface KanbanCardProps {
   milestoneId: string;
   subtaskIndex: number;
   onClick?: () => void;
+  onDelete?: () => void;
 }
 
 export const KanbanCard: React.FC<KanbanCardProps> = ({ 
@@ -20,7 +21,8 @@ export const KanbanCard: React.FC<KanbanCardProps> = ({
   projectId,
   milestoneId,
   subtaskIndex,
-  onClick 
+  onClick,
+  onDelete
 }) => {
   const handleDragStart = (e: React.DragEvent) => {
     e.dataTransfer.setData('application/json', JSON.stringify({ 
@@ -29,6 +31,13 @@ export const KanbanCard: React.FC<KanbanCardProps> = ({
       subtaskIndex 
     }));
     e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDelete = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (window.confirm("Are you sure you want to delete this task?")) {
+      onDelete?.();
+    }
   };
 
   const isOverdue = task.dueDate && task.dueDate < Date.now() && task.status !== 'Complete';
@@ -45,15 +54,25 @@ export const KanbanCard: React.FC<KanbanCardProps> = ({
       style={{ borderLeftColor: getStatusBorderColor(task.status) }}
     >
       <div className="flex justify-between items-start mb-1">
-        <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider truncate flex-1 pr-2" title={`${projectName} • ${milestoneName}`}>
+        <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider truncate flex-1 pr-6" title={`${projectName} • ${milestoneName}`}>
           {milestoneName}
         </div>
+        
+        {/* Delete Button (Visible on Hover) */}
+        <button 
+          onClick={handleDelete}
+          className="absolute top-2 right-2 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-red-50 rounded"
+          title="Delete Task"
+        >
+          <Trash2 size={12} />
+        </button>
+
         {task.isImportant && (
-          <AlertTriangle size={12} className="text-amber-500 fill-amber-100 shrink-0" />
+          <AlertTriangle size={12} className="text-amber-500 fill-amber-100 shrink-0 absolute top-3 right-8" />
         )}
       </div>
       
-      <div className="text-sm font-bold text-slate-800 mb-2 line-clamp-3 leading-tight">
+      <div className="text-sm font-bold text-slate-800 mb-2 line-clamp-3 leading-tight pr-4">
         {task.name}
       </div>
       
