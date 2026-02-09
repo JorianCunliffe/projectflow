@@ -68,12 +68,28 @@ const DEFAULT_SETTINGS: AppSettings = {
     "Other"
   ],
   statuses: [
+    "Not started",
     "Started",
     "Held",
-    "Complete",
-    "Not started"
+    "Complete"
   ],
   dateFormat: 'DD/MM/YY'
+};
+
+// Helper to migrate old settings structure
+const migrateSettings = (loadedSettings: Partial<AppSettings>): AppSettings => {
+  const merged = { ...DEFAULT_SETTINGS, ...loadedSettings };
+  
+  // Migration: If we detect the old default status order, update to new order
+  const oldOrderJSON = JSON.stringify(["Started", "Held", "Complete", "Not started"]);
+  const currentOrderJSON = JSON.stringify(merged.statuses);
+  
+  if (currentOrderJSON === oldOrderJSON) {
+    console.log("Migrating status order to new default...");
+    merged.statuses = DEFAULT_SETTINGS.statuses;
+  }
+  
+  return merged;
 };
 
 export const App: React.FC = () => {
@@ -132,16 +148,18 @@ export const App: React.FC = () => {
   const sanitizeProjects = (rawProjects: any): Project[] => {
     if (!rawProjects) return [];
     const projectsList = Array.isArray(rawProjects) ? rawProjects : Object.values(rawProjects);
-    return projectsList.map((p: any) => ({
-      ...p,
-      milestones: (Array.isArray(p.milestones) ? p.milestones : Object.values(p.milestones || [])).map((m: any) => ({
-        ...m,
-        dependsOn: Array.isArray(m.dependsOn) ? m.dependsOn : Object.values(m.dependsOn || []),
-        subtasks: (Array.isArray(m.subtasks) ? m.subtasks : Object.values(m.subtasks || [])).map((s: any) => ({
-          ...s
+    return projectsList
+      .filter((p: any) => p && p.name && p.name.trim() !== '') // Clean up ghosts/blank projects
+      .map((p: any) => ({
+        ...p,
+        milestones: (Array.isArray(p.milestones) ? p.milestones : Object.values(p.milestones || [])).map((m: any) => ({
+          ...m,
+          dependsOn: Array.isArray(m.dependsOn) ? m.dependsOn : Object.values(m.dependsOn || []),
+          subtasks: (Array.isArray(m.subtasks) ? m.subtasks : Object.values(m.subtasks || [])).map((s: any) => ({
+            ...s
+          }))
         }))
-      }))
-    }));
+      }));
   };
 
   // Sync Logic (Firebase & LocalStorage)
@@ -152,7 +170,7 @@ export const App: React.FC = () => {
         try {
           const parsed = JSON.parse(saved);
           setProjects(sanitizeProjects(parsed.projects));
-          setSettings({ ...DEFAULT_SETTINGS, ...parsed.settings });
+          setSettings(migrateSettings(parsed.settings));
         } catch (e) {
           console.error("Failed to load local state", e);
         }
@@ -179,11 +197,11 @@ export const App: React.FC = () => {
         if (data.settings) {
           setSettings(prev => ({
             ...prev,
-            ...data.settings,
+            ...migrateSettings(data.settings),
+            // Ensure lists are merged if missing in cloud data but present in defaults
             projectTypes: data.settings.projectTypes || prev.projectTypes || DEFAULT_SETTINGS.projectTypes,
             companies: data.settings.companies || prev.companies || DEFAULT_SETTINGS.companies,
             people: data.settings.people || prev.people || DEFAULT_SETTINGS.people,
-            statuses: data.settings.statuses || prev.statuses || DEFAULT_SETTINGS.statuses,
           }));
         }
       } else {
@@ -260,7 +278,7 @@ export const App: React.FC = () => {
         const parsed = JSON.parse(backup);
         const cleaned = sanitizeProjects(parsed.projects);
         setProjects(cleaned);
-        if (parsed.settings) setSettings(parsed.settings);
+        if (parsed.settings) setSettings(migrateSettings(parsed.settings));
         isRemoteUpdate.current = false; 
         alert("Backup restored! Attempting to sync to cloud...");
       } catch (e) {
@@ -499,7 +517,7 @@ export const App: React.FC = () => {
         if (!parsed.projects || !parsed.settings) throw new Error("Invalid backup file format.");
         if (window.confirm("This will overwrite all current projects and settings with the backup data. Are you sure?")) {
           setProjects(sanitizeProjects(parsed.projects));
-          setSettings(parsed.settings);
+          setSettings(migrateSettings(parsed.settings));
           alert("Backup restored successfully!");
         }
       } catch (err) {
@@ -633,6 +651,27 @@ export const App: React.FC = () => {
       setProjects(prev => prev.map(p => p.id === selectedProjectId ? { ...p, updatedAt: Date.now(), milestones: p.milestones.map(m => m.id === targetId ? { ...m, dependsOn: [...(m.dependsOn || []), linkingSourceId] } : m) } : p));
       setLinkingSourceId(null);
   };
+  const handleRemoveLink = (milestoneId: string, otherId: string, type: 'parent' | 'child') => {
+    setProjects(prev => prev.map(p => {
+      if (p.id !== selectedProjectId) return p;
+      return {
+        ...p,
+        updatedAt: Date.now(),
+        milestones: p.milestones.map(m => {
+          if (type === 'parent' && m.id === milestoneId) {
+             // Remove otherId from dependsOn of milestoneId
+             return { ...m, dependsOn: (m.dependsOn || []).filter(pid => pid !== otherId) };
+          }
+          if (type === 'child' && m.id === otherId) {
+             // Remove milestoneId from dependsOn of otherId
+             return { ...m, dependsOn: (m.dependsOn || []).filter(pid => pid !== milestoneId) };
+          }
+          return m;
+        })
+      };
+    }));
+  };
+
   const handleDuplicateProject = (id: string) => {
     const p = projects.find(proj => proj.id === id);
     if (!p) return;
@@ -782,9 +821,11 @@ export const App: React.FC = () => {
              </button>
           )}
           
-          <button onClick={() => setIsCreatingProject(true)} className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-3 py-2 md:px-4 md:py-2 rounded-lg flex items-center gap-2 shadow-sm transition-all active:scale-95 text-sm md:text-base">
-            <Plus size={18} /> <span className="hidden sm:inline">New Project</span>
-          </button>
+          {(!selectedProjectId && !isKanbanMode) && (
+            <button onClick={() => setIsCreatingProject(true)} className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-3 py-2 md:px-4 md:py-2 rounded-lg flex items-center gap-2 shadow-sm transition-all active:scale-95 text-sm md:text-base">
+              <Plus size={18} /> <span className="hidden sm:inline">New Project</span>
+            </button>
+          )}
         </div>
       </header>
 
@@ -828,6 +869,7 @@ export const App: React.FC = () => {
                  onChange={(e) => setKanbanFilterMember(e.target.value)}
                >
                  <option value="ALL">All Members</option>
+                 <option value="Unassigned">Unassigned</option>
                  {(settings.people || []).map(p => <option key={p} value={p}>{p}</option>)}
                </select>
              </div>
@@ -961,32 +1003,47 @@ export const App: React.FC = () => {
                           }))}
                         </svg>
                         <div className="absolute inset-0 pointer-events-none">
-                          {canvasData.milestones.map(m => (
-                            <div key={m.id} className="pointer-events-auto">
-                              <MilestoneNode 
-                                milestone={m}
-                                showSubtasks={showSubtasks}
-                                onAddSubtask={handleAddSubtask}
-                                onAddSequence={(id) => handleAddMilestone(activeProject!.id, id, false)}
-                                onAddPrevious={(id) => handleAddPreviousStep(activeProject!.id, id)}
-                                onAddParallel={(id) => handleAddMilestone(activeProject!.id, id, true)}
-                                onEditSubtask={(mId, sIdx) => setIsEditingSubtask({ mId, sIdx })}
-                                onUpdateName={handleUpdateMilestoneName}
-                                onUpdateDuration={handleUpdateMilestoneDuration}
-                                onDeleteMilestone={handleDeleteMilestone}
-                                onMove={handleMoveMilestone}
-                                onBrainstorm={handleBrainstormSubtasks}
-                                onHover={setHoveredMilestoneId}
-                                onStartLinking={handleStartLinking}
-                                onCompleteLinking={handleCompleteLinking}
-                                isLinkingMode={!!linkingSourceId}
-                                isSource={linkingSourceId === m.id}
-                                targetDate={milestoneTimeline.get(m.id)?.targetDate}
-                                dateFormat={settings.dateFormat}
-                                onClick={() => {}}
-                              />
-                            </div>
-                          ))}
+                          {canvasData.milestones.map(m => {
+                            // Calculate parents and children for this milestone node to support link deletion
+                            const parents = (m.dependsOn || []).map(pid => {
+                              const p = canvasData.milestones.find(xm => xm.id === pid);
+                              return p ? { id: p.id, name: p.name } : null;
+                            }).filter(Boolean) as {id: string, name: string}[];
+
+                            const children = canvasData.milestones
+                              .filter(om => (om.dependsOn || []).includes(m.id))
+                              .map(om => ({ id: om.id, name: om.name }));
+                            
+                            return (
+                              <div key={m.id} className="pointer-events-auto">
+                                <MilestoneNode 
+                                  milestone={m}
+                                  showSubtasks={showSubtasks}
+                                  onAddSubtask={handleAddSubtask}
+                                  onAddSequence={(id) => handleAddMilestone(activeProject!.id, id, false)}
+                                  onAddPrevious={(id) => handleAddPreviousStep(activeProject!.id, id)}
+                                  onAddParallel={(id) => handleAddMilestone(activeProject!.id, id, true)}
+                                  onEditSubtask={(mId, sIdx) => setIsEditingSubtask({ mId, sIdx })}
+                                  onUpdateName={handleUpdateMilestoneName}
+                                  onUpdateDuration={handleUpdateMilestoneDuration}
+                                  onDeleteMilestone={handleDeleteMilestone}
+                                  onMove={handleMoveMilestone}
+                                  onBrainstorm={handleBrainstormSubtasks}
+                                  onHover={setHoveredMilestoneId}
+                                  onStartLinking={handleStartLinking}
+                                  onCompleteLinking={handleCompleteLinking}
+                                  onRemoveLink={(otherId, type) => handleRemoveLink(m.id, otherId, type)}
+                                  parents={parents}
+                                  children={children}
+                                  isLinkingMode={!!linkingSourceId}
+                                  isSource={linkingSourceId === m.id}
+                                  targetDate={milestoneTimeline.get(m.id)?.targetDate}
+                                  dateFormat={settings.dateFormat}
+                                  onClick={() => {}}
+                                />
+                              </div>
+                            );
+                          })}
                         </div>
                       </div>
                     </div>

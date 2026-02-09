@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Project, AppSettings, Subtask } from '../types';
 import { KanbanCard } from './KanbanCard';
+import { getStatusBorderColor } from '../constants';
 
 interface KanbanBoardProps {
   projects: Project[];
@@ -124,7 +125,11 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
       <div className="flex gap-4 mb-2 sticky top-0 z-30 shrink-0">
         <div className="w-56 shrink-0 bg-transparent"></div> {/* Swimlane Header Spacer */}
         {columns.map(status => (
-          <div key={status} className="flex-1 min-w-[280px] bg-slate-100/90 backdrop-blur-sm border-b-2 border-slate-200 text-slate-600 font-bold text-xs uppercase tracking-widest py-3 px-4 rounded-t-lg shadow-sm">
+          <div 
+            key={status} 
+            className="flex-1 min-w-[280px] bg-slate-100/90 backdrop-blur-sm border-t-4 border-b-2 border-slate-200 text-slate-600 font-bold text-xs uppercase tracking-widest py-3 px-4 rounded-t-lg shadow-sm"
+            style={{ borderTopColor: getStatusBorderColor(status) }}
+          >
             {status}
           </div>
         ))}

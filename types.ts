@@ -30,6 +30,12 @@ export interface Subtask {
   status: string;
   link?: string; // optional external resource link
   completedAt?: number; // timestamp when status became 'Complete'
+  
+  // Extended Metadata
+  estimatedTime?: number;
+  timeUnit?: 'hours' | 'days' | 'weeks';
+  dueDate?: number; // timestamp
+  isImportant?: boolean;
 }
 
 export interface Milestone {

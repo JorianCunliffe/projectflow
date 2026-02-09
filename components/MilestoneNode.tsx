@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Milestone } from '../types';
 import { MilestonePieChart } from './PieChart';
-import { Plus, ChevronRight, ChevronLeft, User, Edit2, Wand2, Clock, CalendarCheck, Trash2, ExternalLink, Link as LinkIcon, Move } from 'lucide-react';
+import { Plus, ChevronRight, ChevronLeft, User, Edit2, Wand2, Clock, CalendarCheck, Trash2, ExternalLink, Link as LinkIcon, Move, X, ArrowRight, ArrowLeft, AlertTriangle, Calendar } from 'lucide-react';
 import { getStatusBorderColor } from '../constants';
 
 interface MilestoneNodeProps {
@@ -22,6 +22,9 @@ interface MilestoneNodeProps {
   // Linking props
   onStartLinking: (milestoneId: string) => void;
   onCompleteLinking: (milestoneId: string) => void;
+  onRemoveLink: (otherId: string, type: 'parent' | 'child') => void;
+  parents: { id: string, name: string }[];
+  children: { id: string, name: string }[];
   isLinkingMode: boolean;
   isSource: boolean;
 
@@ -46,6 +49,9 @@ export const MilestoneNode: React.FC<MilestoneNodeProps> = ({
   onHover,
   onStartLinking,
   onCompleteLinking,
+  onRemoveLink,
+  parents,
+  children,
   isLinkingMode,
   isSource,
   targetDate,
@@ -55,7 +61,9 @@ export const MilestoneNode: React.FC<MilestoneNodeProps> = ({
   const [isEditing, setIsEditing] = useState(false);
   const [tempName, setTempName] = useState(milestone.name);
   const [isThinking, setIsThinking] = useState(false);
+  const [showLinkMenu, setShowLinkMenu] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const linkMenuRef = useRef<HTMLDivElement>(null);
 
   // Dragging state
   const [isDragging, setIsDragging] = useState(false);
@@ -76,6 +84,21 @@ export const MilestoneNode: React.FC<MilestoneNodeProps> = ({
       inputRef.current?.select();
     }
   }, [isEditing]);
+
+  // Close link menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (linkMenuRef.current && !linkMenuRef.current.contains(event.target as Node)) {
+        setShowLinkMenu(false);
+      }
+    };
+    if (showLinkMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showLinkMenu]);
 
   const formatDate = (date: Date | number | undefined) => {
     if (!date) return 'N/A';
@@ -111,7 +134,7 @@ export const MilestoneNode: React.FC<MilestoneNodeProps> = ({
   };
 
   const handleMouseDown = (e: React.MouseEvent) => {
-    if (isLinkingMode || e.button !== 0 || isEditing) return;
+    if (isLinkingMode || e.button !== 0 || isEditing || showLinkMenu) return;
     
     e.stopPropagation(); // Prevent canvas panning
     
@@ -219,7 +242,7 @@ export const MilestoneNode: React.FC<MilestoneNodeProps> = ({
           <MilestonePieChart subtasks={subtasks} size={100} />
           
           {/* Drag Handle Indicator on Hover */}
-          {!isLinkingMode && !isDragging && (
+          {!isLinkingMode && !isDragging && !showLinkMenu && (
             <div className="absolute inset-0 rounded-full bg-black/0 group-hover:bg-black/5 flex items-center justify-center transition-colors pointer-events-none">
                <Move size={20} className="text-white opacity-0 group-hover:opacity-50" />
             </div>
@@ -232,7 +255,7 @@ export const MilestoneNode: React.FC<MilestoneNodeProps> = ({
         </div>
 
         {/* Floating Tooltip for Timeline */}
-        {!isLinkingMode && !isDragging && (
+        {!isLinkingMode && !isDragging && !showLinkMenu && (
           <div className="absolute -top-12 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-[10px] px-2 py-1 rounded opacity-0 group-hover/circle:opacity-100 transition-opacity whitespace-nowrap z-50 pointer-events-none flex flex-col items-center shadow-lg">
             <div className="flex items-center gap-1">
               <Clock size={10} className="text-indigo-400" />
@@ -250,7 +273,7 @@ export const MilestoneNode: React.FC<MilestoneNodeProps> = ({
 
         {/* Quick Actions Panel - Hide during linking mode and dragging */}
         {!isLinkingMode && !isDragging && (
-          <div className="absolute left-full top-1/2 -translate-y-1/2 pl-3 flex flex-col gap-1.5 opacity-0 group-hover/circle:opacity-100 transition-all transform group-hover/circle:translate-x-1 duration-300 z-50">
+          <div className={`absolute left-full top-1/2 -translate-y-1/2 pl-3 flex flex-col gap-1.5 transition-all transform duration-300 z-50 ${showLinkMenu ? 'opacity-100 translate-x-1' : 'opacity-0 group-hover/circle:opacity-100 group-hover/circle:translate-x-1'}`}>
             <button 
               onClick={handleBrainstorm}
               disabled={isThinking}
@@ -280,16 +303,85 @@ export const MilestoneNode: React.FC<MilestoneNodeProps> = ({
             >
               <Plus size={14} className="pointer-events-none" />
             </button>
-            <button 
-              onClick={(e) => { 
-                  e.stopPropagation();
-                  onStartLinking(milestone.id); 
-              }}
-              className="p-2 bg-violet-600 text-white rounded-full shadow-lg hover:bg-violet-700 active:scale-90 transition-all border border-violet-500"
-              title="Link to Another Milestone"
-            >
-              <LinkIcon size={14} className="pointer-events-none" />
-            </button>
+            <div className="relative">
+              <button 
+                onClick={(e) => { 
+                    e.stopPropagation();
+                    setShowLinkMenu(!showLinkMenu);
+                }}
+                className={`p-2 rounded-full shadow-lg active:scale-90 transition-all border ${showLinkMenu ? 'bg-violet-700 text-white border-violet-800' : 'bg-violet-600 text-white hover:bg-violet-700 border-violet-500'}`}
+                title="Manage Links"
+              >
+                {showLinkMenu ? <X size={14} /> : <LinkIcon size={14} />}
+              </button>
+              
+              {/* Link Management Menu */}
+              {showLinkMenu && (
+                <div 
+                  ref={linkMenuRef}
+                  className="absolute left-full top-0 ml-3 bg-white rounded-xl shadow-xl border border-slate-200 p-2 min-w-[200px] z-[100] animate-in slide-in-from-left-2 fade-in duration-200"
+                  onMouseDown={(e) => e.stopPropagation()} 
+                >
+                   <button 
+                     onClick={(e) => {
+                       e.stopPropagation();
+                       setShowLinkMenu(false);
+                       onStartLinking(milestone.id);
+                     }}
+                     className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-violet-600 hover:bg-violet-50 rounded-lg transition-colors mb-1"
+                   >
+                     <Plus size={14} /> Add New Link
+                   </button>
+                   
+                   {(parents.length > 0 || children.length > 0) && <div className="h-px bg-slate-100 my-1" />}
+                   
+                   {/* Parents (Incoming) */}
+                   {parents.length > 0 && (
+                     <div className="mb-2">
+                       <div className="text-[9px] font-black text-slate-400 uppercase tracking-wider px-2 py-1">Incoming (Parents)</div>
+                       {parents.map(p => (
+                         <div key={p.id} className="flex items-center justify-between px-2 py-1.5 hover:bg-slate-50 rounded-lg group/item">
+                           <div className="flex items-center gap-2 text-xs text-slate-600 truncate max-w-[120px]">
+                             <ArrowLeft size={10} className="text-slate-400 shrink-0" />
+                             <span className="truncate" title={p.name}>{p.name}</span>
+                           </div>
+                           <button 
+                             onClick={() => onRemoveLink(p.id, 'parent')}
+                             className="text-slate-300 hover:text-red-500 transition-colors"
+                             title="Remove Link"
+                           >
+                             <Trash2 size={12} />
+                           </button>
+                         </div>
+                       ))}
+                     </div>
+                   )}
+
+                   {/* Children (Outgoing) */}
+                   {children.length > 0 && (
+                     <div>
+                       <div className="text-[9px] font-black text-slate-400 uppercase tracking-wider px-2 py-1">Outgoing (Children)</div>
+                       {children.map(c => (
+                         <div key={c.id} className="flex items-center justify-between px-2 py-1.5 hover:bg-slate-50 rounded-lg group/item">
+                           <div className="flex items-center gap-2 text-xs text-slate-600 truncate max-w-[120px]">
+                             <ArrowRight size={10} className="text-slate-400 shrink-0" />
+                             <span className="truncate" title={c.name}>{c.name}</span>
+                           </div>
+                           <button 
+                             onClick={() => onRemoveLink(c.id, 'child')}
+                             className="text-slate-300 hover:text-red-500 transition-colors"
+                             title="Remove Link"
+                           >
+                             <Trash2 size={12} />
+                           </button>
+                         </div>
+                       ))}
+                     </div>
+                   )}
+                </div>
+              )}
+            </div>
+
             <button 
               onClick={(e) => { 
                   e.preventDefault();
@@ -328,7 +420,7 @@ export const MilestoneNode: React.FC<MilestoneNodeProps> = ({
               <div 
                 key={task.id} 
                 onClick={(e) => { e.stopPropagation(); onEditSubtask(milestone.id, idx); }}
-                className="text-xs p-2 rounded-lg bg-slate-50 hover:bg-indigo-50 hover:shadow-sm cursor-pointer flex items-center justify-between group/task transition-all"
+                className={`text-xs p-2 rounded-lg hover:bg-indigo-50 hover:shadow-sm cursor-pointer flex items-center justify-between group/task transition-all ${task.isImportant ? 'bg-amber-50/80' : 'bg-slate-50'}`}
               >
                 <div className="flex flex-col flex-1 min-w-0 pr-2">
                   <div className="flex items-center justify-between">
@@ -346,9 +438,19 @@ export const MilestoneNode: React.FC<MilestoneNodeProps> = ({
                       </a>
                     )}
                   </div>
-                  <span className="text-[9px] text-slate-500 flex items-center gap-1 mt-0.5">
-                    <User size={9} /> {task.assignedTo || 'Unassigned'}
-                  </span>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <span className="text-[9px] text-slate-500 flex items-center gap-1">
+                      <User size={9} /> {task.assignedTo || 'Unassigned'}
+                    </span>
+                    {task.dueDate && (
+                        <span className="text-[9px] text-slate-400 flex items-center gap-0.5" title="Due Date">
+                           <Calendar size={8} />
+                        </span>
+                    )}
+                    {task.isImportant && (
+                        <AlertTriangle size={8} className="text-amber-500 fill-amber-500" />
+                    )}
+                  </div>
                   {task.status === 'Complete' && task.completedAt && (
                     <span className="text-[8px] text-emerald-600 font-medium">Done {formatDate(task.completedAt)}</span>
                   )}
