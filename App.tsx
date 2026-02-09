@@ -666,8 +666,6 @@ export const App: React.FC = () => {
     setIsGenerating(false);
   };
 
-  // ... (Other handlers like handleSaveProjectEdit, handleUpdateMilestoneName, etc. are identical to original file) ...
-  // Re-implementing simplified versions for brevity in this output, assuming they exist as they were.
   const handleSaveProjectEdit = (updatedProject: Project) => {
     setProjects(prev => prev.map(p => p.id === updatedProject.id ? { ...updatedProject, updatedAt: Date.now() } : p));
     setEditingProject(null);
@@ -729,19 +727,91 @@ export const App: React.FC = () => {
   const confirmDeleteProject = () => {
     if(projectToDelete) { setProjects(projects.filter(p => p.id !== projectToDelete)); setSelectedProjectId(null); setProjectToDelete(null); }
   };
+
+  // UPDATED: Handle adding next/parallel milestones with proper positioning relative to parent
   const handleAddMilestone = (pId: string, parentId: string | null, isParallel: boolean) => {
-      setProjects(prev => prev.map(p => p.id !== pId ? p : { ...p, updatedAt: Date.now(), milestones: [...p.milestones, { id: `m-${Date.now()}`, name: isParallel ? 'New Branch' : 'New Milestone', dependsOn: parentId ? [parentId] : [], estimatedDuration: 5, subtasks: [] }] }));
+      setProjects(prev => prev.map(p => {
+        if (p.id !== pId) return p;
+
+        let x: number | undefined;
+        let y: number | undefined;
+
+        // Calculate position based on parent or viewport to keep it in view
+        if (parentId) {
+           // We use the calculated canvas positions (which include auto-layout or manual overrides)
+           const parent = canvasData.milestones.find(m => m.id === parentId);
+           if (parent && typeof parent.x === 'number' && typeof parent.y === 'number') {
+              // Place to the right. If parallel/branch, shift down slightly.
+              x = parent.x + 360; 
+              y = isParallel ? parent.y + 200 : parent.y;
+           }
+        } else {
+           // Start milestone - center in current viewport
+           if (containerRef.current) {
+              const viewW = containerRef.current.clientWidth;
+              const viewH = containerRef.current.clientHeight;
+              // Convert view center to canvas coordinates: (View - Pan) / Zoom
+              x = (viewW / 2 - pan.x) / zoom;
+              y = (viewH / 2 - pan.y) / zoom;
+           }
+        }
+
+        return { 
+          ...p, 
+          updatedAt: Date.now(), 
+          milestones: [
+            ...p.milestones, 
+            { 
+              id: `m-${Date.now()}`, 
+              name: isParallel ? 'New Branch' : 'New Milestone', 
+              dependsOn: parentId ? [parentId] : [], 
+              estimatedDuration: 5, 
+              subtasks: [],
+              x, 
+              y
+            }
+          ] 
+        };
+      }));
   };
+
+  // UPDATED: Handle adding previous step with proper positioning (left of current)
   const handleAddPreviousStep = (pId: string, currentMilestoneId: string) => {
-      // (Logic from original)
       setProjects(prev => prev.map(p => {
           if (p.id !== pId) return p;
           const current = p.milestones.find(m => m.id === currentMilestoneId);
           if(!current) return p;
+          
+          // Calculate position for new 'previous' node (to the left of current)
+          const currentNodeCanvas = canvasData.milestones.find(m => m.id === currentMilestoneId);
+          let x: number | undefined;
+          let y: number | undefined;
+          
+          if (currentNodeCanvas && typeof currentNodeCanvas.x === 'number' && typeof currentNodeCanvas.y === 'number') {
+             x = currentNodeCanvas.x - 360;
+             y = currentNodeCanvas.y;
+          }
+
           const newId = `m-${Date.now()}`;
-          return { ...p, updatedAt: Date.now(), milestones: [...p.milestones.map(m => m.id === currentMilestoneId ? { ...m, dependsOn: [newId] } : m), { id: newId, name: 'Previous Step', dependsOn: current.dependsOn || [], estimatedDuration: 5, subtasks: [] }] };
+          return { 
+            ...p, 
+            updatedAt: Date.now(), 
+            milestones: [
+              ...p.milestones.map(m => m.id === currentMilestoneId ? { ...m, dependsOn: [newId] } : m), 
+              { 
+                id: newId, 
+                name: 'Previous Step', 
+                dependsOn: current.dependsOn || [], 
+                estimatedDuration: 5, 
+                subtasks: [],
+                x,
+                y
+              }
+            ] 
+          };
       }));
   };
+
   const handleAddSubtask = (mId: string) => {
       setProjects(prev => prev.map(p => p.id === selectedProjectId ? { ...p, updatedAt: Date.now(), milestones: p.milestones.map(m => m.id === mId ? { ...m, subtasks: [...(m.subtasks || []), { id: `s-${Date.now()}`, name: 'New Task', description: '', assignedTo: '', notes: '', status: 'Not started' }] } : m) } : p));
   };
