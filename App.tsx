@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import html2canvas from 'html2canvas';
 import { 
   Project, 
   Milestone, 
@@ -27,7 +28,9 @@ import {
   CloudOff,
   Columns,
   Users,
-  Briefcase
+  Briefcase,
+  Printer,
+  Image as ImageIcon
 } from 'lucide-react';
 import { geminiService } from './services/geminiService';
 import { firebaseService } from './services/firebaseService';
@@ -370,6 +373,51 @@ export const App: React.FC = () => {
       x: (viewW - contentW * newZoom) / 2,
       y: (viewH - contentH * newZoom) / 2
     });
+  };
+
+  const handlePrint = () => {
+    // 1. Remember current view
+    const prevZoom = zoom;
+    const prevPan = pan;
+    
+    // 2. Reset view for print (fit loosely)
+    setZoom(0.6); 
+    setPan({ x: 50, y: 50 }); // Reset to top-left with slight margin
+    
+    // 3. Wait for render then print
+    setTimeout(() => {
+      window.print();
+      // 4. Restore
+      setZoom(prevZoom);
+      setPan(prevPan);
+    }, 100);
+  };
+
+  const handleDownloadSnapshot = async () => {
+    const element = document.getElementById('mindmap-content');
+    if (!element) return;
+    
+    const prevCursor = document.body.style.cursor;
+    document.body.style.cursor = 'wait';
+
+    try {
+      const canvas = await html2canvas(element, {
+        scale: 2, // High resolution
+        backgroundColor: '#fcfcfd',
+        logging: false,
+        useCORS: true
+      });
+
+      const link = document.createElement('a');
+      link.download = `${activeProject?.name || 'project'}-map.png`;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    } catch (err) {
+      console.error("Snapshot failed", err);
+      alert("Failed to generate image snapshot.");
+    } finally {
+      document.body.style.cursor = prevCursor;
+    }
   };
 
   useEffect(() => {
@@ -927,6 +975,8 @@ export const App: React.FC = () => {
                        <button onClick={centerView} className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="Zoom Reset"><ZoomIn size={18} /></button>
                        <button onClick={handleZoomToExtents} className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="Zoom Extents"><Maximize size={18} /></button>
                        <button onClick={handleResetLayout} className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="Reset Layout"><Layout size={18} /></button>
+                       <button onClick={handlePrint} className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="Print Project"><Printer size={18} /></button>
+                       <button onClick={handleDownloadSnapshot} className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="Download Image"><ImageIcon size={18} /></button>
                        <div className="flex bg-slate-100 p-1 rounded-lg mr-2">
                         <button onClick={() => setShowSubtasks(!showSubtasks)} className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-semibold transition-colors ${showSubtasks ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600'}`}>
                           {showSubtasks ? <Eye size={16} /> : <EyeOff size={16} />} Details
@@ -948,7 +998,7 @@ export const App: React.FC = () => {
                     onMouseLeave={handleMouseUp}
                   >
                     {/* MINIMAP */}
-                    <div className="absolute top-6 right-6 z-40 flex flex-col items-end gap-2 pointer-events-none">
+                    <div className="absolute top-6 right-6 z-40 flex flex-col items-end gap-2 pointer-events-none print:hidden">
                       <div className="pointer-events-auto flex flex-col items-end gap-2">
                         <button onClick={() => setShowMinimap(!showMinimap)} className="bg-white p-2 rounded-lg shadow-md border border-slate-200 text-slate-500 hover:text-indigo-600 transition-colors">
                           <MapIcon size={20} />
@@ -986,7 +1036,7 @@ export const App: React.FC = () => {
 
                     {/* MAIN SVG CANVAS */}
                     <div className="absolute transition-transform duration-300 ease-out" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '0 0' }}>
-                      <div style={{ width: canvasData.width, height: canvasData.height }}>
+                      <div id="mindmap-content" style={{ width: canvasData.width, height: canvasData.height }}>
                         <svg className="absolute inset-0 pointer-events-none" width={canvasData.width} height={canvasData.height}>
                           <defs>
                             <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#cbd5e1" /></marker>

@@ -19,7 +19,7 @@ export const ProjectSidebar: React.FC<ProjectSidebarProps> = ({ stats, settings,
   if (!stats) return null;
   
   return (
-    <div className="hidden lg:flex w-80 bg-white border-l border-slate-200 shrink-0 flex-col z-30 shadow-xl shadow-slate-200/50">
+    <div className="hidden lg:flex w-80 bg-white border-l border-slate-200 shrink-0 flex-col z-30 shadow-xl shadow-slate-200/50 print:hidden">
         <div className="p-6 border-b border-slate-100">
         <h3 className="text-sm font-bold text-slate-800 uppercase tracking-widest flex items-center gap-2">
           <Activity size={16} className="text-indigo-600" /> Project Intelligence
