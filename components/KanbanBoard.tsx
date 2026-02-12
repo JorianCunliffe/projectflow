@@ -135,13 +135,25 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
 
   const openCreateModal = (status: string, swimlaneId: string, swimlaneType: string) => {
     const context: any = { status };
+    
+    // Determine Project Context
     if (swimlaneType === 'project') {
       context.projectId = swimlaneId;
-    } else if (swimlaneType === 'member') {
+    } else if (projectFilter && projectFilter !== 'ALL') {
+      // If grouped by member but filtered by project, use the filter
+      context.projectId = projectFilter;
+    }
+
+    // Determine Assignee Context
+    if (swimlaneType === 'member') {
       if (swimlaneId !== 'Unassigned') {
         context.assignee = swimlaneId;
       }
+    } else if (memberFilter && memberFilter !== 'ALL' && memberFilter !== 'Unassigned') {
+      // If grouped by project but filtered by member, use the filter
+      context.assignee = memberFilter;
     }
+
     setCreateContext(context);
     setIsCreateModalOpen(true);
   };

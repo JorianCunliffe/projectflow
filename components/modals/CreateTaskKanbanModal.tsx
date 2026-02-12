@@ -27,20 +27,50 @@ export const CreateTaskKanbanModal: React.FC<CreateTaskKanbanModalProps> = ({
   // Reset state when opening
   useEffect(() => {
     if (isOpen) {
-      setSelectedProjectId(defaultProjectId || '');
-      setSelectedMilestoneId('');
+      const pId = defaultProjectId || '';
+      setSelectedProjectId(pId);
+      
+      // Auto-select first milestone if project is provided
+      if (pId) {
+        const proj = projects.find(p => p.id === pId);
+        if (proj && proj.milestones.length > 0) {
+          setSelectedMilestoneId(proj.milestones[0].id);
+        } else {
+          setSelectedMilestoneId('');
+        }
+      } else {
+        setSelectedMilestoneId('');
+      }
+
       setTaskName('');
       setAssignee(defaultAssignee || '');
       setStatus(defaultStatus);
       setDueDate('');
     }
-  }, [isOpen, defaultProjectId, defaultAssignee, defaultStatus]);
+  }, [isOpen, defaultProjectId, defaultAssignee, defaultStatus, projects]);
 
   const selectedProject = useMemo(() => 
     projects.find(p => p.id === selectedProjectId), 
   [projects, selectedProjectId]);
 
   const milestones = selectedProject ? selectedProject.milestones : [];
+
+  const handleProjectChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const newProjectId = e.target.value;
+    setSelectedProjectId(newProjectId);
+    
+    // Auto-select first milestone when project changes manually
+    if (newProjectId) {
+      const proj = projects.find(p => p.id === newProjectId);
+      if (proj && proj.milestones.length > 0) {
+        setSelectedMilestoneId(proj.milestones[0].id);
+      } else {
+        setSelectedMilestoneId('');
+      }
+    } else {
+      setSelectedMilestoneId('');
+    }
+  };
 
   const handleCreate = () => {
     if (!selectedProjectId || !selectedMilestoneId || !taskName.trim()) return;
@@ -77,7 +107,7 @@ export const CreateTaskKanbanModal: React.FC<CreateTaskKanbanModalProps> = ({
               <select 
                 className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-indigo-500"
                 value={selectedProjectId}
-                onChange={(e) => { setSelectedProjectId(e.target.value); setSelectedMilestoneId(''); }}
+                onChange={handleProjectChange}
                 disabled={!!defaultProjectId && defaultProjectId !== ''}
               >
                 <option value="">Select Project...</option>
