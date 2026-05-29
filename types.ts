@@ -13,18 +13,29 @@ export enum ProjectType {
   OTHER = 'Other'
 }
 
+export interface TeamMemberDetails {
+  email?: string;
+  phone?: string;
+}
+
 export interface AppSettings {
   projectTypes: string[];
   companies: string[];
   people: string[];
+  roles: string[];
+  teamMemberDetails?: Record<string, TeamMemberDetails>; // name -> details
   statuses: string[];
   dateFormat: 'DD/MM/YY' | 'MM/DD/YY';
+  nextProjectId?: number;
+  nextTaskId?: number;
 }
 
 export interface Subtask {
   id: string;
+  displayId?: string;
   name: string;
   assignedTo: string;
+  role?: string;
   description: string;
   notes: string;
   status: string;
@@ -36,6 +47,7 @@ export interface Subtask {
   timeUnit?: 'hours' | 'days' | 'weeks';
   dueDate?: number; // timestamp
   isImportant?: boolean;
+  isToday?: boolean;
 }
 
 export interface Milestone {
@@ -57,6 +69,7 @@ export interface TimelineMarker {
 
 export interface Project {
   id: string;
+  displayId?: string;
   name: string;
   company: string;
   type: string;
@@ -65,6 +78,7 @@ export interface Project {
   markers?: TimelineMarker[];
   createdAt: number;
   updatedAt: number; // tracks any modification to the project
+  isArchived?: boolean;
   
   // Financial Fields (in Thousands $K)
   cashRequirement?: number;

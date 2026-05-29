@@ -98,7 +98,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
           >
             <div className="flex justify-between items-start mb-2">
               <div className="flex-1">
-                <h3 className="text-lg font-bold text-slate-900 leading-tight mb-1">{p.name}</h3>
+                <div className="flex items-center gap-2 mb-1">
+                  {p.displayId && (
+                    <span className="text-[10px] font-black text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100 tracking-tighter shrink-0">
+                      {p.displayId}
+                    </span>
+                  )}
+                  <h3 className="text-lg font-bold text-slate-900 leading-tight truncate">{p.name}</h3>
+                </div>
                 <div className="flex items-center gap-1.5 text-slate-500 text-sm">
                   <Building size={14} />
                   <span>{p.company}</span>

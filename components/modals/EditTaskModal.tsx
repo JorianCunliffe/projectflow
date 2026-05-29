@@ -1,19 +1,82 @@
-import React from 'react';
-import { X, Trash2, ExternalLink, Calendar, Clock, AlertTriangle } from 'lucide-react';
+import React, { useState } from 'react';
+import { Mail, Phone, X, Trash2, ExternalLink, Calendar, Clock, AlertTriangle, Loader2, Check } from 'lucide-react';
 import { Subtask, AppSettings } from '../../types';
+import { sendTaskEmail } from '../../lib/emailUtils';
+
+const TaskEmailButton: React.FC<{
+  task: Subtask,
+  settings: AppSettings,
+  projectName: string,
+  milestoneName: string,
+  formatDate: (d: Date | number | undefined) => string
+}> = ({ task, settings, projectName, milestoneName, formatDate }) => {
+  const [isSending, setIsSending] = useState(false);
+  const [sendSuccess, setSendSuccess] = useState(false);
+
+  if (!task.assignedTo || !settings.teamMemberDetails?.[task.assignedTo]?.email) return null;
+
+  const handleSendEmail = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (isSending || sendSuccess) return;
+    
+    setIsSending(true);
+    try {
+      await sendTaskEmail(
+        settings.teamMemberDetails![task.assignedTo].email!,
+        {
+          name: task.name,
+          displayId: task.displayId,
+          description: task.description,
+          notes: task.notes,
+          status: task.status,
+          dueDate: task.dueDate ? formatDate(task.dueDate) : undefined
+        },
+        projectName,
+        milestoneName
+      );
+      setSendSuccess(true);
+      setTimeout(() => setSendSuccess(false), 3000);
+    } catch (err) {
+      console.error("Failed to send email", err);
+      // fallback error
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  return (
+    <button 
+      type="button"
+      onClick={handleSendEmail}
+      disabled={isSending || sendSuccess}
+      className={`flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-lg border transition-colors ${sendSuccess ? 'text-green-600 bg-green-50 border-green-100' : isSending ? 'text-slate-400 bg-slate-50 border-slate-100' : 'text-blue-600 bg-blue-50 border-blue-100 hover:text-blue-700'}`}
+      title="Send Task via Email"
+    >
+      {isSending ? (
+        <Loader2 size={10} className="animate-spin" />
+      ) : sendSuccess ? (
+        <Check size={10} />
+      ) : (
+        <Mail size={10} />
+      )}
+      <span>{sendSuccess ? 'Sent Email' : 'Send Email'}</span>
+    </button>
+  );
+};
 
 interface EditTaskModalProps {
   isOpen: boolean;
   onClose: () => void;
   task: Subtask;
   milestoneName: string;
+  projectName: string;
   settings: AppSettings;
   onUpdate: (updates: Partial<Subtask>) => void;
   onDelete: () => void;
 }
 
 export const EditTaskModal: React.FC<EditTaskModalProps> = ({ 
-  isOpen, onClose, task, milestoneName, settings, onUpdate, onDelete 
+  isOpen, onClose, task, milestoneName, projectName, settings, onUpdate, onDelete 
 }) => {
   if (!isOpen) return null;
 
@@ -23,12 +86,26 @@ export const EditTaskModal: React.FC<EditTaskModalProps> = ({
     return new Date(ts).toISOString().split('T')[0];
   };
 
+  const formatDate = (date: Date | number | undefined) => {
+    if (!date) return 'N/A';
+    const d = new Date(date);
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = String(d.getFullYear()).slice(-2);
+    return settings.dateFormat === 'DD/MM/YY' ? `${day}/${month}/${year}` : `${month}/${day}/${year}`;
+  };
+
   return (
     <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
       <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg p-8 border border-slate-200 animate-in fade-in zoom-in duration-200 flex flex-col max-h-[90vh]">
         <div className="flex justify-between items-start border-b border-slate-100 pb-4 mb-4 shrink-0">
             <div>
               <div className="flex items-center gap-2">
+                {task.displayId && (
+                  <span className="bg-slate-100 text-slate-500 text-[10px] font-black px-2 py-0.5 rounded border border-slate-200 tracking-tighter">
+                    {task.displayId}
+                  </span>
+                )}
                 <h3 className="text-xl font-black text-slate-900">Edit Task</h3>
                 {task.isImportant && (
                   <span className="bg-amber-100 text-amber-700 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 border border-amber-200">
@@ -64,16 +141,58 @@ export const EditTaskModal: React.FC<EditTaskModalProps> = ({
           {/* Main Attributes */}
           <div className="grid grid-cols-2 gap-4">
               <div>
-              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Assigned To</label>
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Assigned To</label>
+                <select 
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-900 font-medium outline-none focus:ring-2 focus:ring-indigo-500"
+                  value={task.assignedTo}
+                  onChange={(e) => onUpdate({ assignedTo: e.target.value })}
+                >
+                  <option value="">Unassigned</option>
+                  {(settings.people || []).map(person => <option key={person} value={person}>{person}</option>)}
+                </select>
+                {task.assignedTo && settings.teamMemberDetails?.[task.assignedTo] && (
+                  <div className="mt-2 flex flex-wrap gap-3 animate-in fade-in slide-in-from-top-1 duration-200">
+                    {settings.teamMemberDetails[task.assignedTo].email && (
+                      <div className="flex items-center gap-2 mt-2">
+                        <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-500 bg-slate-50 px-2 py-1 rounded-lg border border-slate-100">
+                          <Mail size={10} className="text-indigo-500" />
+                          {settings.teamMemberDetails[task.assignedTo].email}
+                        </div>
+                        <TaskEmailButton 
+                          task={task} 
+                          settings={settings} 
+                          projectName={projectName} 
+                          milestoneName={milestoneName} 
+                          formatDate={formatDate}
+                        />
+                      </div>
+                    )}
+                    {settings.teamMemberDetails[task.assignedTo].phone && (
+                      <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-500 bg-slate-50 px-2 py-1 rounded-lg border border-slate-100">
+                        <Phone size={10} className="text-emerald-500" />
+                        {settings.teamMemberDetails[task.assignedTo].phone}
+                      </div>
+                    )}
+                  </div>
+                )}
+            </div>
+            <div>
+              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Role (Planning)</label>
               <select 
                 className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-900 font-medium outline-none focus:ring-2 focus:ring-indigo-500"
-                value={task.assignedTo}
-                onChange={(e) => onUpdate({ assignedTo: e.target.value })}
+                value={task.role || ''}
+                onChange={(e) => onUpdate({ role: e.target.value })}
               >
-                <option value="">Unassigned</option>
-                {(settings.people || []).map(person => <option key={person} value={person}>{person}</option>)}
+                <option value="">No Role Assigned</option>
+                {(settings.roles || []).map(role => <option key={role} value={role}>{role}</option>)}
               </select>
+              <div className="mt-2">
+                <p className="text-[10px] text-slate-400 leading-tight italic">Roles are for structure. Names represent actual personnel assignments.</p>
+              </div>
             </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4">
             <div>
               <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Status</label>
               <select 
@@ -83,6 +202,32 @@ export const EditTaskModal: React.FC<EditTaskModalProps> = ({
               >
                 {(settings.statuses || []).map(s => <option key={s} value={s}>{s}</option>)}
               </select>
+            </div>
+            
+            <div className="flex items-center gap-6 mt-1">
+               <label className="flex items-center gap-2 cursor-pointer">
+                 <input 
+                   type="checkbox" 
+                   className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                   checked={!!task.isImportant}
+                   onChange={(e) => onUpdate({ isImportant: e.target.checked })}
+                 />
+                 <span className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
+                   <AlertTriangle size={14} className={task.isImportant ? "text-amber-500 fill-amber-100" : "text-slate-400"} /> Important
+                 </span>
+               </label>
+
+               <label className="flex items-center gap-2 cursor-pointer">
+                 <input 
+                   type="checkbox" 
+                   className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                   checked={!!task.isToday}
+                   onChange={(e) => onUpdate({ isToday: e.target.checked })}
+                 />
+                 <span className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
+                   <Calendar size={14} className={task.isToday ? "text-indigo-600" : "text-slate-400"} /> Today
+                 </span>
+               </label>
             </div>
           </div>
 

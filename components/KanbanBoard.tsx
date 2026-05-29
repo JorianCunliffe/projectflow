@@ -11,6 +11,10 @@ interface KanbanBoardProps {
   grouping: 'project' | 'member';
   memberFilter?: string | null;
   projectFilter?: string | null;
+  roleFilter?: string | null;
+  importantFilter?: boolean;
+  todayFilter?: boolean;
+  lateFilter?: boolean;
   onTaskClick?: (projectId: string, milestoneId: string, subtaskIndex: number) => void;
   onStatusChange?: (projectId: string, milestoneId: string, subtaskIndex: number, newStatus: string) => void;
   onDeleteTask?: (projectId: string, milestoneId: string, subtaskIndex: number) => void;
@@ -33,6 +37,10 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
   grouping,
   memberFilter,
   projectFilter,
+  roleFilter,
+  importantFilter,
+  todayFilter,
+  lateFilter,
   onTaskClick,
   onStatusChange,
   onDeleteTask,
@@ -58,6 +66,11 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
         (m.subtasks || []).forEach((s, idx) => {
           // If member filter is active, check specific assignee
           if (memberFilter && (s.assignedTo || 'Unassigned') !== memberFilter) return;
+          // Apply new filters
+          if (roleFilter && s.role !== roleFilter) return;
+          if (importantFilter && !s.isImportant) return;
+          if (todayFilter && !s.isToday) return;
+          if (lateFilter && (!s.dueDate || s.dueDate >= Date.now())) return;
 
           tasks.push({
             id: `${p.id}-${m.id}-${idx}`,
@@ -72,7 +85,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
       });
     });
     return tasks;
-  }, [projects, projectFilter, memberFilter]);
+  }, [projects, projectFilter, memberFilter, roleFilter, importantFilter, todayFilter, lateFilter]);
 
   // 2. Define Swimlanes (Rows)
   const swimlanes = useMemo(() => {
@@ -160,23 +173,24 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
 
   return (
     <>
-      <div className="flex-1 overflow-auto bg-slate-50/50 p-6 h-full min-w-[1000px] flex flex-col">
+      <div className="flex-1 overflow-hidden bg-slate-50/50 p-2 md:p-6 h-full w-full flex flex-col">
         {/* Header Row (Statuses) */}
-        <div className="flex gap-4 mb-2 sticky top-0 z-30 shrink-0">
-          <div className="w-56 shrink-0 bg-transparent"></div> {/* Swimlane Header Spacer */}
+        <div className="flex gap-1.5 md:gap-4 mb-2 shrink-0">
+          <div className="hidden md:block w-56 shrink-0 bg-transparent"></div> {/* Swimlane Header Spacer - Desktop Only */}
           {columns.map(status => (
             <div 
               key={status} 
-              className="flex-1 min-w-[280px] bg-slate-100/90 backdrop-blur-sm border-t-4 border-b-2 border-slate-200 text-slate-600 font-bold text-xs uppercase tracking-widest py-3 px-4 rounded-t-lg shadow-sm"
+              className="flex-1 min-w-0 bg-slate-100/90 backdrop-blur-sm border-t-4 border-b-2 border-slate-200 text-slate-600 font-bold text-[9px] md:text-xs uppercase tracking-widest py-2 md:py-3 px-1 md:px-4 rounded-t-lg shadow-sm text-center md:text-left truncate"
               style={{ borderTopColor: getStatusBorderColor(status) }}
+              title={status}
             >
               {status}
             </div>
           ))}
         </div>
 
-        {/* Swimlanes */}
-        <div className="space-y-4 pb-10">
+        {/* Swimlanes Container */}
+        <div className="flex-1 overflow-y-auto flex flex-col gap-4 min-h-0">
           {swimlanes.map(lane => {
               // Pre-calculate tasks for this lane to verify counts
               const laneTasksCount = allTasks.filter(t => {
@@ -185,9 +199,9 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
               }).length;
               
               return (
-                <div key={lane.id} className="flex gap-4 group/lane">
-                  {/* Swimlane Header */}
-                  <div className="w-56 shrink-0 pt-2 sticky left-0 z-20">
+                <div key={lane.id} className="flex flex-col md:flex-row gap-4 h-full min-h-[300px]">
+                  {/* Swimlane Header - Hidden on Mobile */}
+                  <div className="hidden md:block w-56 shrink-0 pt-2 sticky left-0 z-20">
                     <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm group-hover/lane:shadow-md transition-all group-hover/lane:border-indigo-200">
                       <h3 className="font-bold text-slate-800 text-sm truncate" title={lane.title}>{lane.title}</h3>
                       <div className="text-xs text-slate-500 mt-1 font-medium bg-slate-100 w-fit px-2 py-0.5 rounded-full">
@@ -196,58 +210,63 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                     </div>
                   </div>
 
-                  {/* Status Columns cells */}
-                  {columns.map(status => {
-                    const tasksInCell = allTasks.filter(t => {
-                      const matchesStatus = t.task.status === status;
-                      let matchesLane = false;
-                      if (grouping === 'project') {
-                        matchesLane = t.projectId === lane.id;
-                      } else {
-                        matchesLane = (t.task.assignedTo || 'Unassigned') === lane.id;
-                      }
-                      return matchesStatus && matchesLane;
-                    });
+                  {/* Status Columns cells - All Visible, Vertical Scroll */}
+                  <div className="flex gap-1.5 md:gap-4 w-full h-full min-h-0">
+                    {columns.map(status => {
+                      const tasksInCell = allTasks.filter(t => {
+                        const matchesStatus = t.task.status === status;
+                        let matchesLane = false;
+                        if (grouping === 'project') {
+                          matchesLane = t.projectId === lane.id;
+                        } else {
+                          matchesLane = (t.task.assignedTo || 'Unassigned') === lane.id;
+                        }
+                        return matchesStatus && matchesLane;
+                      });
 
-                    const cellId = `${lane.id}-${status}`;
-                    const isOver = dragOverColumn === cellId;
+                      const cellId = `${lane.id}-${status}`;
+                      const isOver = dragOverColumn === cellId;
 
-                    return (
-                      <div 
-                        key={cellId}
-                        className={`flex-1 min-w-[280px] rounded-xl p-2 border transition-all flex flex-col gap-2 min-h-[120px] ${
-                          isOver 
-                            ? 'bg-indigo-50/50 border-indigo-300 ring-2 ring-indigo-200 ring-inset' 
-                            : 'bg-slate-100/30 border-slate-200 border-dashed hover:bg-slate-100/80'
-                        }`}
-                        onDragOver={(e) => handleDragOver(e, cellId)}
-                        onDragLeave={handleDragLeave}
-                        onDrop={(e) => handleDrop(e, status)}
-                      >
-                        {tasksInCell.map(flatTask => (
-                          <KanbanCard 
-                            key={flatTask.id}
-                            task={flatTask.task}
-                            milestoneName={flatTask.milestoneName}
-                            projectName={flatTask.projectName}
-                            projectId={flatTask.projectId}
-                            milestoneId={flatTask.milestoneId}
-                            subtaskIndex={flatTask.subtaskIndex}
-                            onClick={() => onTaskClick?.(flatTask.projectId, flatTask.milestoneId, flatTask.subtaskIndex)}
-                            onDelete={() => onDeleteTask?.(flatTask.projectId, flatTask.milestoneId, flatTask.subtaskIndex)}
-                          />
-                        ))}
-                        
-                        {/* Quick Add Button */}
-                        <button 
-                          onClick={() => openCreateModal(status, lane.id, lane.type!)}
-                          className="w-full py-2 flex items-center justify-center gap-1 rounded-lg border border-dashed border-slate-300 text-slate-400 text-xs font-bold hover:bg-white hover:text-indigo-600 hover:border-indigo-300 transition-all opacity-0 group-hover/lane:opacity-100"
+                      return (
+                        <div 
+                          key={cellId}
+                          className={`flex-1 min-w-0 rounded-xl p-1 md:p-2 border transition-all flex flex-col gap-2 h-full ${
+                            isOver 
+                              ? 'bg-indigo-50/50 border-indigo-300 ring-2 ring-indigo-200 ring-inset' 
+                              : 'bg-slate-100/30 border-slate-200 border-dashed hover:bg-slate-100/80'
+                          }`}
+                          onDragOver={(e) => handleDragOver(e, cellId)}
+                          onDragLeave={handleDragLeave}
+                          onDrop={(e) => handleDrop(e, status)}
                         >
-                          <Plus size={12} /> New Task
-                        </button>
-                      </div>
-                    );
-                  })}
+                          <div className="flex-1 overflow-y-auto min-h-0 pr-0.5">
+                            {tasksInCell.map(flatTask => (
+                              <KanbanCard 
+                                key={flatTask.id}
+                                task={flatTask.task}
+                                milestoneName={flatTask.milestoneName}
+                                projectName={flatTask.projectName}
+                                projectId={flatTask.projectId}
+                                milestoneId={flatTask.milestoneId}
+                                subtaskIndex={flatTask.subtaskIndex}
+                                settings={settings}
+                                onClick={() => onTaskClick?.(flatTask.projectId, flatTask.milestoneId, flatTask.subtaskIndex)}
+                                onDelete={() => onDeleteTask?.(flatTask.projectId, flatTask.milestoneId, flatTask.subtaskIndex)}
+                              />
+                            ))}
+                          </div>
+                          
+                          {/* Quick Add Button */}
+                          <button 
+                            onClick={() => openCreateModal(status, lane.id, lane.type!)}
+                            className="w-full py-2 flex items-center justify-center gap-1 rounded-lg border border-dashed border-slate-300 text-slate-400 text-[10px] md:text-xs font-bold hover:bg-white hover:text-indigo-600 hover:border-indigo-300 transition-all shrink-0"
+                          >
+                            <Plus size={10} /> <span className="hidden md:inline">New Task</span><span className="md:hidden">Add</span>
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               );
           })}

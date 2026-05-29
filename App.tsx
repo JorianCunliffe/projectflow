@@ -22,6 +22,8 @@ import {
   RefreshCw,
   Maximize,
   ZoomIn,
+  ZoomOut,
+  Target,
   Trash2,
   Link as LinkIcon,
   Map as MapIcon,
@@ -33,7 +35,12 @@ import {
   Briefcase,
   Printer,
   Image as ImageIcon,
-  Flag
+  Flag,
+  PanelRightOpen,
+  PanelRightClose,
+  AlertTriangle,
+  Calendar,
+  Clock
 } from 'lucide-react';
 import { geminiService } from './services/geminiService';
 import { firebaseService } from './services/firebaseService';
@@ -73,18 +80,38 @@ const DEFAULT_SETTINGS: AppSettings = {
     "Beau",
     "Other"
   ],
+  roles: [
+    "Manager",
+    "Developer",
+    "Designer",
+    "Marketing",
+    "Sales",
+    "Contractor",
+    "Client"
+  ],
+  teamMemberDetails: {},
   statuses: [
     "Not started",
     "Started",
     "Held",
     "Complete"
   ],
-  dateFormat: 'DD/MM/YY'
+  dateFormat: 'DD/MM/YY',
+  nextProjectId: 1,
+  nextTaskId: 1
 };
 
 // Helper to migrate old settings structure
 const migrateSettings = (loadedSettings: Partial<AppSettings>): AppSettings => {
   const merged = { ...DEFAULT_SETTINGS, ...loadedSettings };
+  
+  // Ensure lists are actual arrays even if they merged as undefined/null from an invalid save
+  merged.projectTypes = merged.projectTypes || DEFAULT_SETTINGS.projectTypes;
+  merged.companies = merged.companies || DEFAULT_SETTINGS.companies;
+  merged.people = merged.people || DEFAULT_SETTINGS.people;
+  merged.roles = merged.roles || DEFAULT_SETTINGS.roles || [];
+  merged.statuses = merged.statuses || DEFAULT_SETTINGS.statuses;
+  merged.teamMemberDetails = merged.teamMemberDetails || {};
   
   // Migration: If we detect the old default status order, update to new order
   const oldOrderJSON = JSON.stringify(["Started", "Held", "Complete", "Not started"]);
@@ -110,6 +137,10 @@ export const App: React.FC = () => {
   const [kanbanGrouping, setKanbanGrouping] = useState<'project' | 'member'>('project');
   const [kanbanFilterProject, setKanbanFilterProject] = useState<string>('ALL');
   const [kanbanFilterMember, setKanbanFilterMember] = useState<string>('ALL');
+  const [kanbanFilterRole, setKanbanFilterRole] = useState<string>('ALL');
+  const [kanbanFilterImportant, setKanbanFilterImportant] = useState<boolean>(false);
+  const [kanbanFilterToday, setKanbanFilterToday] = useState<boolean>(false);
+  const [kanbanFilterLate, setKanbanFilterLate] = useState<boolean>(false);
 
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
@@ -132,6 +163,7 @@ export const App: React.FC = () => {
 
   // Minimap State
   const [showMinimap, setShowMinimap] = useState(true);
+  const [showProjectPanel, setShowProjectPanel] = useState(true);
 
   // Cloud Sync State
   const [cloudStatus, setCloudStatus] = useState<'disconnected' | 'syncing' | 'connected' | 'error'>('disconnected');
@@ -142,6 +174,18 @@ export const App: React.FC = () => {
   const isRemoteUpdate = useRef(false);
   const isDbInitialized = useRef(false); // CRITICAL: Prevents overwriting DB with empty local state on load
 
+  // Mobile Detection
+  useEffect(() => {
+    const checkMobile = () => {
+      if (window.innerWidth < 768) {
+        setIsKanbanMode(true);
+      }
+    };
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
   const formatDate = (date: Date | number | undefined) => {
     if (!date) return 'N/A';
     const d = new Date(date);
@@ -151,22 +195,40 @@ export const App: React.FC = () => {
     return settings.dateFormat === 'DD/MM/YY' ? `${day}/${month}/${year}` : `${month}/${day}/${year}`;
   };
 
-  const sanitizeProjects = (rawProjects: any): Project[] => {
-    if (!rawProjects) return [];
+  const sanitizeProjects = (rawProjects: any, currentSettings: AppSettings): { projects: Project[], nextProjectId: number, nextTaskId: number } => {
+    if (!rawProjects) return { projects: [], nextProjectId: currentSettings.nextProjectId || 1, nextTaskId: currentSettings.nextTaskId || 1 };
+    
+    let nextPId = currentSettings.nextProjectId || 1;
+    let nextTId = currentSettings.nextTaskId || 1;
+    
     const projectsList = Array.isArray(rawProjects) ? rawProjects : Object.values(rawProjects);
-    return projectsList
+    const sanitized = projectsList
       .filter((p: any) => p && p.name && p.name.trim() !== '') // Clean up ghosts/blank projects
-      .map((p: any) => ({
-        ...p,
-        markers: (Array.isArray(p.markers) ? p.markers : Object.values(p.markers || [])).map((m:any) => ({...m})),
-        milestones: (Array.isArray(p.milestones) ? p.milestones : Object.values(p.milestones || [])).map((m: any) => ({
-          ...m,
-          dependsOn: Array.isArray(m.dependsOn) ? m.dependsOn : Object.values(m.dependsOn || []),
-          subtasks: (Array.isArray(m.subtasks) ? m.subtasks : Object.values(m.subtasks || [])).map((s: any) => ({
-            ...s
+      .map((p: any) => {
+        let displayId = p.displayId;
+        if (!displayId) {
+          displayId = `P-${nextPId++}`;
+        }
+        
+        return {
+          ...p,
+          displayId,
+          markers: (Array.isArray(p.markers) ? p.markers : Object.values(p.markers || [])).map((m:any) => ({...m})),
+          milestones: (Array.isArray(p.milestones) ? p.milestones : Object.values(p.milestones || [])).map((m: any) => ({
+            ...m,
+            dependsOn: Array.isArray(m.dependsOn) ? m.dependsOn : Object.values(m.dependsOn || []),
+            subtasks: (Array.isArray(m.subtasks) ? m.subtasks : Object.values(m.subtasks || [])).map((s: any) => {
+              let sDisplayId = s.displayId;
+              if (!sDisplayId) {
+                sDisplayId = `T-${nextTId++}`;
+              }
+              return { ...s, displayId: sDisplayId };
+            })
           }))
-        }))
-      }));
+        };
+      });
+      
+    return { projects: sanitized, nextProjectId: nextPId, nextTaskId: nextTId };
   };
 
   // Sync Logic (Firebase & LocalStorage)
@@ -176,8 +238,10 @@ export const App: React.FC = () => {
       if (saved) {
         try {
           const parsed = JSON.parse(saved);
-          setProjects(sanitizeProjects(parsed.projects));
-          setSettings(migrateSettings(parsed.settings));
+          const migratedSettings = migrateSettings(parsed.settings);
+          const { projects: sanitizedProjects, nextProjectId, nextTaskId } = sanitizeProjects(parsed.projects, migratedSettings);
+          setProjects(sanitizedProjects);
+          setSettings({ ...migratedSettings, nextProjectId, nextTaskId });
         } catch (e) {
           console.error("Failed to load local state", e);
         }
@@ -198,17 +262,22 @@ export const App: React.FC = () => {
         localStorage.setItem(BACKUP_KEY, JSON.stringify(data));
         isRemoteUpdate.current = true;
         
-        const sanitizedProjects = sanitizeProjects(data.projects);
+        const migratedSettings = migrateSettings(data.settings);
+        const { projects: sanitizedProjects, nextProjectId, nextTaskId } = sanitizeProjects(data.projects, migratedSettings);
         setProjects(sanitizedProjects);
         
         if (data.settings) {
           setSettings(prev => ({
             ...prev,
-            ...migrateSettings(data.settings),
+            ...migratedSettings,
+            nextProjectId,
+            nextTaskId,
             // Ensure lists are merged if missing in cloud data but present in defaults
             projectTypes: data.settings.projectTypes || prev.projectTypes || DEFAULT_SETTINGS.projectTypes,
             companies: data.settings.companies || prev.companies || DEFAULT_SETTINGS.companies,
             people: data.settings.people || prev.people || DEFAULT_SETTINGS.people,
+            roles: data.settings.roles || prev.roles || DEFAULT_SETTINGS.roles || [],
+            teamMemberDetails: data.settings.teamMemberDetails || prev.teamMemberDetails || DEFAULT_SETTINGS.teamMemberDetails,
           }));
         }
       } else {
@@ -256,6 +325,90 @@ export const App: React.FC = () => {
     return () => clearTimeout(timer);
   }, [projects, settings, isDataLoaded, cloudStatus]);
 
+  // Handle Deep Linking (Magic Links from Email)
+  useEffect(() => {
+    if (!isDataLoaded || projects.length === 0) return;
+
+    const params = new URLSearchParams(window.location.search);
+    const urlProjName = params.get('projectId');
+    const urlTaskId = params.get('taskId');
+
+    if (urlProjName && urlTaskId) {
+      // Find project by matching name pattern
+      const targetProject = projects.find(p => p.name.replace(/\s+/g, '_') === urlProjName);
+      
+      if (targetProject) {
+        setSelectedProjectId(targetProject.id);
+
+        // search for subtask in all milestones
+        let targetMilestoneId = '';
+        let targetSubtaskIndex = -1;
+
+        for (const m of targetProject.milestones) {
+          const idx = m.subtasks.findIndex(s => s.displayId === urlTaskId);
+          if (idx !== -1) {
+            targetMilestoneId = m.id;
+            targetSubtaskIndex = idx;
+            break;
+          }
+        }
+
+        if (targetMilestoneId && targetSubtaskIndex !== -1) {
+          // Trigger the edit modal
+          setIsEditingSubtask({ mId: targetMilestoneId, sIdx: targetSubtaskIndex });
+          
+          // Clean URL without reloading
+          window.history.replaceState({}, '', window.location.pathname);
+        }
+      }
+    }
+  }, [isDataLoaded, projects]);
+
+  const handleBulkNameReplacementGlobal = (oldName: string, newName: string) => {
+    if (!oldName || !newName || oldName === newName) return;
+    
+    setProjects(prevProjects => {
+      return prevProjects.map(project => {
+        if (project.isArchived) return project;
+        
+        return {
+          ...project,
+          milestones: project.milestones.map(milestone => ({
+            ...milestone,
+            subtasks: milestone.subtasks.map(task => ({
+              ...task,
+              assignedTo: task.assignedTo === oldName ? newName : task.assignedTo
+            }))
+          }))
+        };
+      });
+    });
+  };
+
+  const handleProjectOperations = (projectId: string, operation: { type: 'replace_name' | 'assign_role', oldName?: string, newName: string, role?: string }) => {
+    setProjects(prevProjects => {
+      return prevProjects.map(project => {
+        if (project.id !== projectId) return project;
+
+        return {
+          ...project,
+          milestones: project.milestones.map(milestone => ({
+            ...milestone,
+            subtasks: milestone.subtasks.map(task => {
+              let updatedTask = { ...task };
+              if (operation.type === 'replace_name' && task.assignedTo === operation.oldName) {
+                updatedTask.assignedTo = operation.newName;
+              } else if (operation.type === 'assign_role' && task.role === operation.role) {
+                updatedTask.assignedTo = operation.newName;
+              }
+              return updatedTask;
+            })
+          }))
+        };
+      });
+    });
+  };
+
   // View Context Logic
   useEffect(() => {
     // If we enter a project, we default to standard view, but we should update kanban filters to match context
@@ -283,9 +436,10 @@ export const App: React.FC = () => {
     if (window.confirm("CRITICAL: This will overwrite your current view with the last successful download from the cloud. Are you sure?")) {
       try {
         const parsed = JSON.parse(backup);
-        const cleaned = sanitizeProjects(parsed.projects);
+        const migratedSettings = migrateSettings(parsed.settings);
+        const { projects: cleaned, nextProjectId, nextTaskId } = sanitizeProjects(parsed.projects, migratedSettings);
         setProjects(cleaned);
-        if (parsed.settings) setSettings(migrateSettings(parsed.settings));
+        setSettings({ ...migratedSettings, nextProjectId, nextTaskId });
         isRemoteUpdate.current = false; 
         alert("Backup restored! Attempting to sync to cloud...");
       } catch (e) {
@@ -297,6 +451,16 @@ export const App: React.FC = () => {
   const activeProject = useMemo(() => 
     projects.find(p => p.id === selectedProjectId), 
     [projects, selectedProjectId]
+  );
+
+  const activeProjects = useMemo(() => 
+    projects.filter(p => !p.isArchived),
+    [projects]
+  );
+
+  const archivedProjects = useMemo(() => 
+    projects.filter(p => p.isArchived),
+    [projects]
   );
 
   const canvasData = useMemo(() => {
@@ -586,8 +750,10 @@ export const App: React.FC = () => {
         const parsed = JSON.parse(content);
         if (!parsed.projects || !parsed.settings) throw new Error("Invalid backup file format.");
         if (window.confirm("This will overwrite all current projects and settings with the backup data. Are you sure?")) {
-          setProjects(sanitizeProjects(parsed.projects));
-          setSettings(migrateSettings(parsed.settings));
+          const migratedSettings = migrateSettings(parsed.settings);
+          const { projects: sanitized, nextProjectId, nextTaskId } = sanitizeProjects(parsed.projects, migratedSettings);
+          setProjects(sanitized);
+          setSettings({ ...migratedSettings, nextProjectId, nextTaskId });
           alert("Backup restored successfully!");
         }
       } catch (err) {
@@ -603,6 +769,19 @@ export const App: React.FC = () => {
     const milestone = activeProject.milestones.find(m => m.id === mId);
     if (!milestone) return;
     const newTasks = await geminiService.brainstormSubtasks(milestone.name, activeProject.name);
+    
+    let currentTaskId = settings.nextTaskId || 1;
+    const formattedTasks = newTasks.map((t: any) => ({
+      id: Math.random().toString(36).substr(2, 9),
+      displayId: `T-${currentTaskId++}`,
+      name: t.name,
+      description: t.description,
+      assignedTo: '',
+      notes: '',
+      status: 'Not started'
+    }));
+
+    setSettings(prev => ({ ...prev, nextTaskId: currentTaskId }));
     setProjects(prev => prev.map(p => {
       if (p.id !== selectedProjectId) return p;
       return {
@@ -610,36 +789,44 @@ export const App: React.FC = () => {
         updatedAt: Date.now(),
         milestones: p.milestones.map(m => {
           if (m.id !== mId) return m;
-          const formattedTasks = newTasks.map((t: any) => ({
-            id: Math.random().toString(36).substr(2, 9),
-            name: t.name,
-            description: t.description,
-            assignedTo: '',
-            notes: '',
-            status: 'Not started'
-          }));
           return { ...m, subtasks: [...(m.subtasks || []), ...formattedTasks] };
         })
       };
     }));
   };
 
+  const handleReinstateProject = (projectId: string) => {
+    setProjects(prev => prev.map(p => 
+      p.id === projectId ? { ...p, isArchived: false, updatedAt: Date.now() } : p
+    ));
+    setIsCreatingProject(false);
+    setSelectedProjectId(projectId);
+  };
+
   const handleCreateProject = async (newProjectData: any, useAI: boolean) => {
     setIsGenerating(true);
     let milestones: Milestone[] = [];
-    const defaultMilestones = [{
+    let currentTaskId = settings.nextTaskId || 1;
+
+    const generateSubtask = (s: any) => {
+      const task: Subtask = {
+        id: Math.random().toString(36).substr(2, 9),
+        displayId: `T-${currentTaskId++}`,
+        name: s.name || 'New Task',
+        description: s.description || '',
+        assignedTo: '',
+        notes: '',
+        status: 'Not started'
+      };
+      return task;
+    };
+
+    const defaultMilestones: Milestone[] = [{
       id: 'm1',
       name: 'Initial Concept',
       dependsOn: [],
       estimatedDuration: 7,
-      subtasks: [{
-        id: 's1',
-        name: 'Define Scope',
-        description: 'Basic requirements gather',
-        assignedTo: '',
-        notes: '',
-        status: 'Not started'
-      }]
+      subtasks: [generateSubtask({ name: 'Define Scope', description: 'Basic requirements gather' })]
     }];
 
     if (useAI) {
@@ -649,14 +836,7 @@ export const App: React.FC = () => {
           ...m,
           estimatedDuration: 5,
           dependsOn: m.dependsOn || [],
-          subtasks: (m.subtasks || []).map((s: any) => ({
-            id: Math.random().toString(36).substr(2, 9),
-            name: s.name,
-            description: s.description,
-            assignedTo: '',
-            notes: '',
-            status: 'Not started'
-          }))
+          subtasks: (m.subtasks || []).map((s: any) => generateSubtask(s))
         }));
       } else {
         console.warn("AI Generation failed. Using default template.");
@@ -667,8 +847,10 @@ export const App: React.FC = () => {
     }
 
     const now = Date.now();
+    const projectIdNum = settings.nextProjectId || 1;
     const project: Project = {
       id: now.toString(),
+      displayId: `P-${projectIdNum}`,
       name: newProjectData.name,
       company: newProjectData.company || settings.companies[0],
       type: newProjectData.type || settings.projectTypes[0],
@@ -682,6 +864,7 @@ export const App: React.FC = () => {
       updatedAt: now
     };
 
+    setSettings(prev => ({ ...prev, nextProjectId: projectIdNum + 1, nextTaskId: currentTaskId }));
     setProjects([...projects, project]);
     setSelectedProjectId(project.id);
     setIsCreatingProject(false);
@@ -691,6 +874,9 @@ export const App: React.FC = () => {
   const handleSaveProjectEdit = (updatedProject: Project) => {
     setProjects(prev => prev.map(p => p.id === updatedProject.id ? { ...updatedProject, updatedAt: Date.now() } : p));
     setEditingProject(null);
+    if (updatedProject.isArchived && selectedProjectId === updatedProject.id) {
+      setSelectedProjectId(null);
+    }
   };
   const handleUpdateMilestoneName = (mId: string, newName: string) => {
     setProjects(prev => prev.map(p => p.id === selectedProjectId ? { ...p, updatedAt: Date.now(), milestones: p.milestones.map(m => m.id === mId ? { ...m, name: newName } : m) } : p));
@@ -743,7 +929,29 @@ export const App: React.FC = () => {
   const handleDuplicateProject = (id: string) => {
     const p = projects.find(proj => proj.id === id);
     if (!p) return;
-    setProjects([...projects, { ...p, id: Date.now().toString(), name: `${p.name} (Copy)`, createdAt: Date.now(), updatedAt: Date.now() }]);
+    
+    const projectIdNum = settings.nextProjectId || 1;
+    let currentTaskId = settings.nextTaskId || 1;
+    
+    const duplicatedProject: Project = { 
+      ...p, 
+      id: Date.now().toString(), 
+      displayId: `P-${projectIdNum}`,
+      name: `${p.name} (Copy)`, 
+      createdAt: Date.now(), 
+      updatedAt: Date.now(),
+      milestones: p.milestones.map(m => ({
+        ...m,
+        subtasks: m.subtasks.map(s => ({
+          ...s,
+          id: Math.random().toString(36).substr(2, 9),
+          displayId: `T-${currentTaskId++}`
+        }))
+      }))
+    };
+
+    setSettings(prev => ({ ...prev, nextProjectId: projectIdNum + 1, nextTaskId: currentTaskId }));
+    setProjects([...projects, duplicatedProject]);
   };
   const handleDeleteProject = (id: string) => setProjectToDelete(id);
   const confirmDeleteProject = () => {
@@ -835,7 +1043,9 @@ export const App: React.FC = () => {
   };
 
   const handleAddSubtask = (mId: string) => {
-      setProjects(prev => prev.map(p => p.id === selectedProjectId ? { ...p, updatedAt: Date.now(), milestones: p.milestones.map(m => m.id === mId ? { ...m, subtasks: [...(m.subtasks || []), { id: `s-${Date.now()}`, name: 'New Task', description: '', assignedTo: '', notes: '', status: 'Not started' }] } : m) } : p));
+      const taskIdNum = settings.nextTaskId || 1;
+      setSettings(prev => ({ ...prev, nextTaskId: taskIdNum + 1 }));
+      setProjects(prev => prev.map(p => p.id === selectedProjectId ? { ...p, updatedAt: Date.now(), milestones: p.milestones.map(m => m.id === mId ? { ...m, subtasks: [...(m.subtasks || []), { id: `s-${Date.now()}`, displayId: `T-${taskIdNum}`, name: 'New Task', description: '', assignedTo: '', notes: '', status: 'Not started' }] } : m) } : p));
   };
   const updateSubtask = (mId: string, sIdx: number, updates: Partial<Subtask>) => {
       setProjects(prev => prev.map(p => p.id === selectedProjectId ? { 
@@ -880,6 +1090,8 @@ export const App: React.FC = () => {
   
   // NEW: Handle creating task from Kanban View
   const handleKanbanCreateTask = (pId: string, mId: string, task: Partial<Subtask>) => {
+     const taskIdNum = settings.nextTaskId || 1;
+     setSettings(prev => ({ ...prev, nextTaskId: taskIdNum + 1 }));
      setProjects(prev => prev.map(p => {
        if (p.id !== pId) return p;
        return {
@@ -891,6 +1103,7 @@ export const App: React.FC = () => {
              ...m,
              subtasks: [...(m.subtasks || []), {
                id: `s-${Date.now()}`,
+               displayId: `T-${taskIdNum}`,
                name: task.name || 'New Task',
                description: task.description || '',
                assignedTo: task.assignedTo || '',
@@ -997,12 +1210,94 @@ export const App: React.FC = () => {
         </div>
       )}
 
-      <header className="bg-white border-b border-slate-200 px-4 md:px-6 py-4 flex items-center justify-between sticky top-0 z-50 shadow-sm shrink-0 gap-4">
+      {/* MOBILE HEADER - Only visible on small screens */}
+      <div className="md:hidden bg-white border-b border-slate-200 flex flex-col sticky top-0 z-50 shadow-sm shrink-0">
+         <div className="flex items-center justify-between p-3 border-b border-slate-100">
+            <h1 className="text-lg font-bold text-slate-900 tracking-tight flex items-center gap-2">
+              <div className="p-1.5 bg-indigo-600 rounded-lg text-white">
+                <Layers size={18} />
+              </div>
+              ProjectFlow
+            </h1>
+            <div className="flex bg-slate-100 rounded-lg p-0.5">
+               <button 
+                 onClick={() => setKanbanGrouping('project')}
+                 className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all flex items-center gap-1 ${kanbanGrouping === 'project' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}`}
+               >
+                 <Briefcase size={12} /> Project
+               </button>
+               <button 
+                 onClick={() => setKanbanGrouping('member')}
+                 className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all flex items-center gap-1 ${kanbanGrouping === 'member' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}`}
+               >
+                 <Users size={12} /> Member
+               </button>
+            </div>
+         </div>
+         <div className="p-2 flex gap-2 overflow-x-auto">
+             <select 
+               className="flex-1 min-w-[140px] bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500"
+               value={kanbanFilterProject}
+               onChange={(e) => setKanbanFilterProject(e.target.value)}
+             >
+               <option value="ALL">All Projects</option>
+               {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+             </select>
+
+             <select 
+               className="flex-1 min-w-[140px] bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500"
+               value={kanbanFilterMember}
+               onChange={(e) => setKanbanFilterMember(e.target.value)}
+             >
+               <option value="ALL">All Members</option>
+               <option value="Unassigned">Unassigned</option>
+               {(settings.people || []).map(p => <option key={p} value={p}>{p}</option>)}
+             </select>
+
+             {(settings.roles || []).length > 0 && (
+               <select 
+                 className="flex-1 min-w-[140px] bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500"
+                 value={kanbanFilterRole}
+                 onChange={(e) => setKanbanFilterRole(e.target.value)}
+               >
+                 <option value="ALL">All Roles</option>
+                 {(settings.roles || []).map(r => <option key={r} value={r}>{r}</option>)}
+               </select>
+             )}
+             
+             <button
+               onClick={() => setKanbanFilterImportant(!kanbanFilterImportant)}
+               className={`flex items-center gap-1.5 px-3 py-2 text-xs font-bold rounded-lg border transition-all shrink-0 ${kanbanFilterImportant ? 'bg-amber-50 text-amber-600 border-amber-200 ring-1 ring-amber-300' : 'bg-slate-50 text-slate-500 border-slate-200'}`}
+             >
+               <AlertTriangle size={14} className={kanbanFilterImportant ? "fill-amber-100" : ""} />
+               Important
+             </button>
+
+             <button
+               onClick={() => setKanbanFilterToday(!kanbanFilterToday)}
+               className={`flex items-center gap-1.5 px-3 py-2 text-xs font-bold rounded-lg border transition-all shrink-0 ${kanbanFilterToday ? 'bg-indigo-50 text-indigo-600 border-indigo-200 ring-1 ring-indigo-300' : 'bg-slate-50 text-slate-500 border-slate-200'}`}
+             >
+               <Calendar size={14} />
+               Today
+             </button>
+
+             <button
+               onClick={() => setKanbanFilterLate(!kanbanFilterLate)}
+               className={`flex items-center gap-1.5 px-3 py-2 text-xs font-bold rounded-lg border transition-all shrink-0 ${kanbanFilterLate ? 'bg-red-50 text-red-600 border-red-200 ring-1 ring-red-300' : 'bg-slate-50 text-slate-500 border-slate-200'}`}
+             >
+               <Clock size={14} />
+               Late
+             </button>
+         </div>
+      </div>
+
+      {/* DESKTOP HEADER - Hidden on small screens */}
+      <header className="hidden md:flex bg-white border-b border-slate-200 px-4 md:px-6 py-4 items-center justify-between sticky top-0 z-50 shadow-sm shrink-0 gap-4">
         <div className="flex items-center gap-3 shrink-0">
           <div className="p-2 bg-indigo-600 rounded-lg text-white">
             <Layers size={24} />
           </div>
-          <h1 className="text-xl font-bold text-slate-900 tracking-tight hidden md:block">ProjectFlow</h1>
+          <h1 className="text-xl font-bold text-slate-900 tracking-tight block">ProjectFlow</h1>
           {firebaseService.isConfigured() ? (
             <button 
               onClick={() => setIsCloudSetupOpen(true)}
@@ -1068,9 +1363,9 @@ export const App: React.FC = () => {
       </header>
 
       <main className="flex-1 overflow-hidden relative flex flex-col">
-        {/* KANBAN CONTROLS BAR */}
+        {/* DESKTOP KANBAN CONTROLS BAR (Hidden on Mobile) */}
         {isKanbanMode && (
-          <div className="bg-white border-b border-slate-200 px-6 py-3 flex flex-wrap items-center gap-4 shrink-0 shadow-sm z-20">
+          <div className="hidden md:flex bg-white border-b border-slate-200 px-6 py-3 flex-wrap items-center gap-4 shrink-0 shadow-sm z-20">
              <div className="flex items-center gap-2 text-sm text-slate-500 font-medium">
                 <span className="uppercase text-[10px] font-bold tracking-wider text-slate-400">View By:</span>
                 <div className="flex bg-slate-100 rounded-lg p-0.5">
@@ -1098,8 +1393,19 @@ export const App: React.FC = () => {
                  onChange={(e) => setKanbanFilterProject(e.target.value)}
                >
                  <option value="ALL">All Projects</option>
-                 {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                 {activeProjects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                </select>
+
+               {kanbanFilterProject !== 'ALL' && (
+                 <button 
+                   onClick={() => setEditingProject(activeProjects.find(p => p.id === kanbanFilterProject)!)} 
+                   className="flex items-center gap-1.5 px-3 py-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors border border-slate-200 hover:border-indigo-200 bg-white shadow-sm text-xs font-bold uppercase tracking-wider" 
+                   title="Edit Project Settings"
+                 >
+                   <Settings size={14} />
+                   Project Settings
+                 </button>
+               )}
 
                <select 
                  className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500"
@@ -1110,6 +1416,43 @@ export const App: React.FC = () => {
                  <option value="Unassigned">Unassigned</option>
                  {(settings.people || []).map(p => <option key={p} value={p}>{p}</option>)}
                </select>
+
+               {(settings.roles || []).length > 0 && (
+                 <select 
+                   className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500"
+                   value={kanbanFilterRole}
+                   onChange={(e) => setKanbanFilterRole(e.target.value)}
+                 >
+                   <option value="ALL">All Roles</option>
+                   {(settings.roles || []).map(r => <option key={r} value={r}>{r}</option>)}
+                 </select>
+               )}
+
+               <div className="h-4 w-px bg-slate-200 mx-1" />
+
+               <button
+                 onClick={() => setKanbanFilterImportant(!kanbanFilterImportant)}
+                 className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg border transition-all ${kanbanFilterImportant ? 'bg-amber-50 text-amber-600 border-amber-200 ring-1 ring-amber-300' : 'bg-slate-50 text-slate-500 border-slate-200'}`}
+               >
+                 <AlertTriangle size={14} className={kanbanFilterImportant ? "fill-amber-100" : ""} />
+                 Important
+               </button>
+
+               <button
+                 onClick={() => setKanbanFilterToday(!kanbanFilterToday)}
+                 className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg border transition-all ${kanbanFilterToday ? 'bg-indigo-50 text-indigo-600 border-indigo-200 ring-1 ring-indigo-300' : 'bg-slate-50 text-slate-500 border-slate-200'}`}
+               >
+                 <Calendar size={14} />
+                 Today
+               </button>
+
+               <button
+                 onClick={() => setKanbanFilterLate(!kanbanFilterLate)}
+                 className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg border transition-all ${kanbanFilterLate ? 'bg-red-50 text-red-600 border-red-200 ring-1 ring-red-300' : 'bg-slate-50 text-slate-500 border-slate-200'}`}
+               >
+                 <Clock size={14} />
+                 Late
+               </button>
              </div>
           </div>
         )}
@@ -1117,11 +1460,15 @@ export const App: React.FC = () => {
         {/* MAIN VIEW CONTENT */}
         {isKanbanMode ? (
           <KanbanBoard 
-            projects={projects}
+            projects={activeProjects}
             settings={settings}
             grouping={kanbanGrouping}
             projectFilter={kanbanFilterProject === 'ALL' ? null : kanbanFilterProject}
             memberFilter={kanbanFilterMember === 'ALL' ? null : kanbanFilterMember}
+            roleFilter={kanbanFilterRole === 'ALL' ? null : kanbanFilterRole}
+            importantFilter={kanbanFilterImportant === false ? undefined : true}
+            todayFilter={kanbanFilterToday === false ? undefined : true}
+            lateFilter={kanbanFilterLate === false ? undefined : true}
             onTaskClick={(projectId, milestoneId, subtaskIndex) => {
               // Ensure we open modal in context
               setSelectedProjectId(projectId);
@@ -1136,7 +1483,7 @@ export const App: React.FC = () => {
           <>
             {!selectedProjectId || !activeProject ? (
               <Dashboard 
-                projects={projects}
+                projects={activeProjects}
                 settings={settings}
                 onSelectProject={(id) => { setSelectedProjectId(id); setIsKanbanMode(false); }}
                 onEditProject={setEditingProject}
@@ -1151,9 +1498,21 @@ export const App: React.FC = () => {
                   {/* PROJECT HEADER (Inside Map) */}
                   <div className="bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between shadow-sm shrink-0 z-20">
                     <div className="flex items-center gap-4">
-                      <div>
-                        <h2 className="text-lg font-bold text-slate-900">{activeProject?.name}</h2>
-                        <p className="text-xs text-slate-500">{activeProject?.company} • {activeProject?.type}</p>
+                      <div className="group flex items-center gap-2">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h2 className="text-lg font-bold text-slate-900">{activeProject?.name}</h2>
+                            <button 
+                              onClick={() => setEditingProject(activeProject!)} 
+                              className="flex items-center gap-1.5 px-2 py-1 bg-slate-50 border border-slate-200 text-slate-500 hover:text-indigo-600 hover:border-indigo-200 hover:bg-indigo-50 rounded text-[10px] font-bold uppercase tracking-wider transition-colors ml-2" 
+                              title="Edit Project Settings"
+                            >
+                              <Settings size={12} />
+                              Project Settings
+                            </button>
+                          </div>
+                          <p className="text-xs text-slate-500">{activeProject?.company} • {activeProject?.type}</p>
+                        </div>
                       </div>
                       <div className="h-8 w-px bg-slate-100" />
                       <div className="flex flex-col">
@@ -1162,9 +1521,33 @@ export const App: React.FC = () => {
                       </div>
                     </div>
                     
-                    {/* Project Map Controls */}
+                     {/* Project Map Controls */}
                     <div className="flex items-center gap-3">
-                       <button onClick={centerView} className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="Zoom Reset"><ZoomIn size={18} /></button>
+                       <button onClick={() => setShowProjectPanel(!showProjectPanel)} className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="Toggle Intelligence Panel">
+                         {showProjectPanel ? <PanelRightClose size={18} /> : <PanelRightOpen size={18} />}
+                       </button>
+                       <div className="w-px h-6 bg-slate-200 mx-1"></div>
+                       <button onClick={() => {
+                         const newZoom = Math.max(0.1, zoom - 0.1);
+                         if (containerRef.current) {
+                           const rect = containerRef.current.getBoundingClientRect();
+                           const zoomRatio = newZoom / zoom;
+                           setPan(p => ({ x: rect.width/2 - (rect.width/2 - p.x) * zoomRatio, y: rect.height/2 - (rect.height/2 - p.y) * zoomRatio }));
+                         }
+                         setZoom(newZoom);
+                       }} className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="Zoom Out"><ZoomOut size={18} /></button>
+                       <div className="text-xs font-bold text-slate-500 w-10 text-center select-none" title="Current Zoom Level">{Math.round(zoom * 100)}%</div>
+                       <button onClick={() => {
+                         const newZoom = Math.min(2, zoom + 0.1);
+                         if (containerRef.current) {
+                           const rect = containerRef.current.getBoundingClientRect();
+                           const zoomRatio = newZoom / zoom;
+                           setPan(p => ({ x: rect.width/2 - (rect.width/2 - p.x) * zoomRatio, y: rect.height/2 - (rect.height/2 - p.y) * zoomRatio }));
+                         }
+                         setZoom(newZoom);
+                       }} className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="Zoom In"><ZoomIn size={18} /></button>
+                       <div className="w-px h-6 bg-slate-200 mx-1"></div>
+                       <button onClick={centerView} className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="Center View"><Target size={18} /></button>
                        <button onClick={handleZoomToExtents} className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="Zoom Extents"><Maximize size={18} /></button>
                        <button onClick={handleResetLayout} className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="Reset Layout"><Layout size={18} /></button>
                        <button onClick={handleAddMarker} className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="Add Timeline Marker"><Flag size={18} /></button>
@@ -1189,6 +1572,29 @@ export const App: React.FC = () => {
                     onMouseMove={handleMouseMove}
                     onMouseUp={handleMouseUp}
                     onMouseLeave={handleMouseUp}
+                    onWheel={(e) => {
+                      if (e.ctrlKey || e.metaKey) {
+                        e.preventDefault();
+                        const zoomFactor = -e.deltaY * 0.005;
+                        const newZoom = Math.min(Math.max(0.1, zoom + zoomFactor), 2);
+                        if (containerRef.current) {
+                           const rect = containerRef.current.getBoundingClientRect();
+                           const mouseX = e.clientX - rect.left;
+                           const mouseY = e.clientY - rect.top;
+                           const zoomRatio = newZoom / zoom;
+                           setPan(prevPan => ({
+                              x: mouseX - (mouseX - prevPan.x) * zoomRatio,
+                              y: mouseY - (mouseY - prevPan.y) * zoomRatio
+                           }));
+                        }
+                        setZoom(newZoom);
+                      } else {
+                        setPan(prev => ({
+                          x: prev.x - e.deltaX,
+                          y: prev.y - e.deltaY
+                        }));
+                      }
+                    }}
                     data-zoom={zoom} // Pass zoom to children via data attribute hack or context (hack used for simplicity here in TimelineMarker)
                   >
                     {/* MINIMAP */}
@@ -1214,11 +1620,11 @@ export const App: React.FC = () => {
                                           {canvasData.milestones.map(m => (m.dependsOn||[]).map(pid => {
                                             const p = canvasData.milestones.find(x=>x.id===pid);
                                             if(!p) return null;
-                                            return <path key={`m-${pid}-${m.id}`} d={`M ${(p.x||0)+50} ${p.y} C ${(p.x||0)+((m.x||0)-(p.x||0))/2} ${p.y}, ${(p.x||0)+((m.x||0)-(p.x||0))/2} ${m.y}, ${(m.x||0)-50} ${m.y}`} stroke="#cbd5e1" strokeWidth="4" fill="none" />
+                                            return <path key={`m-${pid}-${m.id}`} d={`M ${(p.x||0)+50} ${p.y} C ${(p.x||0)+((m.x||0)-(p.x||0))/2} ${p.y}, ${(p.x||0)+((m.x||0)-(p.x||0))/2} ${m.y}, ${(m.x||0)-50} ${m.y}`} stroke="#b5c4d6" strokeWidth={Math.max(4, 2/scale)} fill="none" />
                                           }))}
-                                          {canvasData.milestones.map(m => <circle key={m.id} cx={m.x} cy={m.y} r={10} fill="#6366f1" />)}
+                                          {canvasData.milestones.map(m => <circle key={m.id} cx={m.x} cy={m.y} r={Math.max(10, 4/scale)} fill="#6366f1" />)}
                                        </g>
-                                       <rect x={(-pan.x/zoom)*scale + offsetX} y={(-pan.y/zoom)*scale + offsetY} width={((containerRef.current?.clientWidth||0)/zoom)*scale} height={((containerRef.current?.clientHeight||0)/zoom)*scale} fill="none" stroke="#6366f1" strokeWidth="2" />
+                                       <rect x={(-pan.x/zoom)*scale + offsetX} y={(-pan.y/zoom)*scale + offsetY} width={((containerRef.current?.clientWidth||0)/zoom)*scale} height={((containerRef.current?.clientHeight||0)/zoom)*scale} fill="rgba(99, 102, 241, 0.05)" stroke="#6366f1" strokeWidth="2" rx="4" />
                                     </svg>
                                   )
                                 })()}
@@ -1302,6 +1708,8 @@ export const App: React.FC = () => {
                                   isSource={linkingSourceId === m.id}
                                   targetDate={milestoneTimeline.get(m.id)?.targetDate}
                                   dateFormat={settings.dateFormat}
+                                  settings={settings}
+                                  projectName={activeProject?.name || ''}
                                   onClick={() => {}}
                                 />
                               </div>
@@ -1327,7 +1735,7 @@ export const App: React.FC = () => {
                     </div>
                   </div>
                 </div>
-                <ProjectSidebar stats={projectStats} settings={settings} formatDate={formatDate} />
+                {showProjectPanel && <ProjectSidebar stats={projectStats} settings={settings} formatDate={formatDate} />}
               </div>
             )}
           </>
@@ -1335,10 +1743,35 @@ export const App: React.FC = () => {
       </main>
 
       {/* Modals */}
-      <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} settings={settings} onUpdateSettings={setSettings} onExportBackup={handleExportBackup} onImportBackup={handleImportBackup} />
+      <SettingsModal 
+        isOpen={isSettingsOpen} 
+        onClose={() => setIsSettingsOpen(false)} 
+        settings={settings} 
+        onUpdateSettings={setSettings} 
+        onExportBackup={handleExportBackup} 
+        onImportBackup={handleImportBackup} 
+        onBulkReplaceNameGlobal={handleBulkNameReplacementGlobal}
+      />
       <CloudSetupModal isOpen={isCloudSetupOpen} onClose={() => setIsCloudSetupOpen(false)} cloudStatus={cloudStatus} syncError={syncError} onDisconnect={handleDisconnectFirebase} onRestoreBackup={handleRestoreFromBackup} />
-      <CreateProjectModal isOpen={isCreatingProject} onClose={() => setIsCreatingProject(false)} settings={settings} isGenerating={isGenerating} onCreate={handleCreateProject} />
-      {editingProject && <EditProjectModal project={editingProject} isOpen={!!editingProject} onClose={() => setEditingProject(null)} onSave={handleSaveProjectEdit} settings={settings} />}
+      <CreateProjectModal 
+        isOpen={isCreatingProject} 
+        onClose={() => setIsCreatingProject(false)} 
+        settings={settings} 
+        isGenerating={isGenerating} 
+        onCreate={handleCreateProject} 
+        archivedProjects={archivedProjects}
+        onReinstate={handleReinstateProject}
+      />
+      {editingProject && (
+        <EditProjectModal 
+          project={editingProject} 
+          isOpen={!!editingProject} 
+          onClose={() => setEditingProject(null)} 
+          onSave={handleSaveProjectEdit} 
+          onBulkOperation={handleProjectOperations}
+          settings={settings} 
+        />
+      )}
       
       {/* Subtask Modal - Used by both Map and Kanban */}
       {isEditingSubtask && selectedProjectId && activeProject && (
@@ -1347,6 +1780,7 @@ export const App: React.FC = () => {
            onClose={() => setIsEditingSubtask(null)}
            task={activeProject.milestones.find(m => m.id === isEditingSubtask.mId)?.subtasks[isEditingSubtask.sIdx!]!}
            milestoneName={activeProject.milestones.find(m => m.id === isEditingSubtask.mId)?.name || 'Unknown'}
+           projectName={activeProject.name}
            settings={settings}
            onUpdate={(updates) => updateSubtask(isEditingSubtask.mId, isEditingSubtask.sIdx!, updates)}
            onDelete={() => { deleteSubtask(isEditingSubtask.mId, isEditingSubtask.sIdx!); setIsEditingSubtask(null); }}
@@ -1372,6 +1806,11 @@ export const App: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Version Tag */}
+      <div className="fixed bottom-2 right-2 text-[10px] font-medium text-slate-400 pointer-events-none select-none z-[50]">
+        v1.260505
+      </div>
     </div>
   );
 };

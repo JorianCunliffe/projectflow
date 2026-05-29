@@ -1,8 +1,70 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Milestone } from '../types';
+import { Milestone, AppSettings, Subtask } from '../types';
 import { MilestonePieChart } from './PieChart';
-import { Plus, ChevronRight, ChevronLeft, User, Edit2, Wand2, Clock, CalendarCheck, Trash2, ExternalLink, Link as LinkIcon, Move, X, ArrowRight, ArrowLeft, AlertTriangle, Calendar } from 'lucide-react';
+import { Plus, ChevronRight, ChevronLeft, User, Edit2, Wand2, Clock, CalendarCheck, Trash2, ExternalLink, Link as LinkIcon, Move, X, ArrowRight, ArrowLeft, AlertTriangle, Calendar, Mail, Loader2, Check } from 'lucide-react';
 import { getStatusBorderColor } from '../constants';
+import { sendTaskEmail } from '../lib/emailUtils';
+
+const TaskEmailButton: React.FC<{
+  task: Subtask,
+  settings: AppSettings,
+  projectName: string,
+  milestoneName: string,
+  formatDate: (d: Date | number | undefined) => string
+}> = ({ task, settings, projectName, milestoneName, formatDate }) => {
+  const [isSending, setIsSending] = useState(false);
+  const [sendSuccess, setSendSuccess] = useState(false);
+
+  if (!task.assignedTo || !settings.teamMemberDetails?.[task.assignedTo]?.email) return null;
+
+  const handleSendEmail = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (isSending || sendSuccess) return;
+    
+    setIsSending(true);
+    try {
+      await sendTaskEmail(
+        settings.teamMemberDetails![task.assignedTo].email!,
+        {
+          name: task.name,
+          displayId: task.displayId,
+          description: task.description,
+          notes: task.notes,
+          status: task.status,
+          dueDate: task.dueDate ? formatDate(task.dueDate) : undefined
+        },
+        projectName,
+        milestoneName
+      );
+      setSendSuccess(true);
+      setTimeout(() => setSendSuccess(false), 3000);
+    } catch (err) {
+      console.error("Failed to send email", err);
+      alert("Failed to send email");
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  return (
+    <button 
+      type="button"
+      onClick={handleSendEmail}
+      disabled={isSending || sendSuccess}
+      className={`flex items-center gap-1 text-[9px] transition-colors ${sendSuccess ? 'text-green-600' : isSending ? 'text-slate-400' : 'text-blue-500 hover:text-blue-700'}`}
+      title="Send Task via Email"
+    >
+      {isSending ? (
+        <Loader2 size={10} className="animate-spin" />
+      ) : sendSuccess ? (
+        <Check size={10} />
+      ) : (
+        <Mail size={10} />
+      )}
+      <span>{sendSuccess ? 'Sent' : 'Email'}</span>
+    </button>
+  );
+};
 
 interface MilestoneNodeProps {
   milestone: Milestone;
@@ -31,6 +93,8 @@ interface MilestoneNodeProps {
   targetDate?: Date;
   dateFormat: 'DD/MM/YY' | 'MM/DD/YY';
   onClick: () => void;
+  settings: AppSettings;
+  projectName: string;
 }
 
 export const MilestoneNode: React.FC<MilestoneNodeProps> = ({
@@ -56,7 +120,9 @@ export const MilestoneNode: React.FC<MilestoneNodeProps> = ({
   isSource,
   targetDate,
   dateFormat,
-  onClick
+  onClick,
+  settings,
+  projectName
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [tempName, setTempName] = useState(milestone.name);
@@ -424,7 +490,14 @@ export const MilestoneNode: React.FC<MilestoneNodeProps> = ({
               >
                 <div className="flex flex-col flex-1 min-w-0 pr-2">
                   <div className="flex items-center justify-between">
-                    <span className="font-semibold truncate text-slate-800">{task.name}</span>
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      {task.displayId && (
+                        <span className="text-[8px] font-black text-indigo-600 bg-indigo-50 px-1 rounded border border-indigo-100 shrink-0">
+                          {task.displayId}
+                        </span>
+                      )}
+                      <span className="font-semibold truncate text-slate-800">{task.name}</span>
+                    </div>
                     {task.link && (
                       <a 
                         href={task.link.startsWith('http') ? task.link : `https://${task.link}`} 
@@ -439,8 +512,8 @@ export const MilestoneNode: React.FC<MilestoneNodeProps> = ({
                     )}
                   </div>
                   <div className="flex items-center gap-2 mt-0.5">
-                    <span className="text-[9px] text-slate-500 flex items-center gap-1">
-                      <User size={9} /> {task.assignedTo || 'Unassigned'}
+                    <span className={`text-[9px] flex items-center gap-1 ${task.role && !task.assignedTo ? 'text-amber-600 font-bold' : 'text-slate-500'}`} title={task.role ? `Role: ${task.role}${task.assignedTo ? ` | Assigned: ${task.assignedTo}` : ''}` : `Assigned: ${task.assignedTo || 'Unassigned'}`}>
+                      <User size={9} className={task.role && !task.assignedTo ? 'text-amber-500' : ''} /> {task.role ? `[${task.role}] ` : ''}{task.assignedTo || (task.role ? '' : 'Unassigned')}
                     </span>
                     {task.dueDate && (
                         <span className="text-[9px] text-slate-400 flex items-center gap-0.5" title="Due Date">
@@ -450,6 +523,14 @@ export const MilestoneNode: React.FC<MilestoneNodeProps> = ({
                     {task.isImportant && (
                         <AlertTriangle size={8} className="text-amber-500 fill-amber-500" />
                     )}
+                    {/* Email Button - Conditionally rendered if assignee has email */} 
+                    <TaskEmailButton 
+                      task={task} 
+                      settings={settings} 
+                      projectName={projectName} 
+                      milestoneName={milestone.name} 
+                      formatDate={formatDate}
+                    />
                   </div>
                   {task.status === 'Complete' && task.completedAt && (
                     <span className="text-[8px] text-emerald-600 font-medium">Done {formatDate(task.completedAt)}</span>

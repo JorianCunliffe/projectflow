@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Wand2, Banknote } from 'lucide-react';
-import { AppSettings, ProjectType } from '../../types';
+import { AppSettings, ProjectType, Project } from '../../types';
 
 interface CreateProjectModalProps {
   isOpen: boolean;
@@ -8,10 +8,12 @@ interface CreateProjectModalProps {
   settings: AppSettings;
   isGenerating: boolean;
   onCreate: (projectData: any, useAI: boolean) => void;
+  archivedProjects: Project[];
+  onReinstate: (projectId: string) => void;
 }
 
 export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({ 
-  isOpen, onClose, settings, isGenerating, onCreate 
+  isOpen, onClose, settings, isGenerating, onCreate, archivedProjects, onReinstate 
 }) => {
   const [newProject, setNewProject] = useState({ 
     name: '', 
@@ -123,6 +125,26 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
               </div>
             </div>
         </div>
+
+        {archivedProjects.length > 0 && (
+          <div className="bg-amber-50 rounded-2xl p-4 border border-amber-100 mb-8">
+            <label className="block text-xs font-black text-amber-600 uppercase tracking-widest mb-2">Reinstate Archived Project</label>
+            <select 
+              className="w-full bg-white border-2 border-amber-100 rounded-xl px-4 py-2 text-slate-900 font-bold outline-none focus:border-amber-500"
+              onChange={(e) => {
+                if (e.target.value) {
+                  onReinstate(e.target.value);
+                }
+              }}
+              defaultValue=""
+            >
+              <option value="" disabled>Select a project to reinstate...</option>
+              {archivedProjects.map(p => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
 
         <div className="grid grid-cols-2 gap-4">
           <button onClick={onClose} className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-black py-4 rounded-2xl transition-all active:scale-95 shadow-sm">Cancel</button>

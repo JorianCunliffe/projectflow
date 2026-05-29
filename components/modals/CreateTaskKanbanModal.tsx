@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, Calendar, User, Clock, Check } from 'lucide-react';
+import { X, Calendar, User, Clock, Check, Mail, Phone, Briefcase, AlertTriangle } from 'lucide-react';
 import { Project, AppSettings, Subtask } from '../../types';
 
 interface CreateTaskKanbanModalProps {
@@ -21,8 +21,11 @@ export const CreateTaskKanbanModal: React.FC<CreateTaskKanbanModalProps> = ({
   
   const [taskName, setTaskName] = useState('');
   const [assignee, setAssignee] = useState(defaultAssignee || '');
+  const [role, setRole] = useState('');
   const [status, setStatus] = useState(defaultStatus);
   const [dueDate, setDueDate] = useState<string>('');
+  const [isImportant, setIsImportant] = useState<boolean>(false);
+  const [isToday, setIsToday] = useState<boolean>(false);
   
   // Reset state when opening
   useEffect(() => {
@@ -44,8 +47,11 @@ export const CreateTaskKanbanModal: React.FC<CreateTaskKanbanModalProps> = ({
 
       setTaskName('');
       setAssignee(defaultAssignee || '');
+      setRole('');
       setStatus(defaultStatus);
       setDueDate('');
+      setIsImportant(false);
+      setIsToday(false);
     }
   }, [isOpen, defaultProjectId, defaultAssignee, defaultStatus, projects]);
 
@@ -79,10 +85,12 @@ export const CreateTaskKanbanModal: React.FC<CreateTaskKanbanModalProps> = ({
       name: taskName,
       status: status,
       assignedTo: assignee,
+      role: role,
       dueDate: dueDate ? new Date(dueDate).getTime() : undefined,
       description: '',
       notes: '',
-      isImportant: false
+      isImportant: isImportant,
+      isToday: isToday
     };
 
     onCreate(selectedProjectId, selectedMilestoneId, newTask);
@@ -152,8 +160,40 @@ export const CreateTaskKanbanModal: React.FC<CreateTaskKanbanModalProps> = ({
                     <option value="">Unassigned</option>
                     {(settings.people || []).map(p => <option key={p} value={p}>{p}</option>)}
                   </select>
+                  {assignee && settings.teamMemberDetails?.[assignee] && (
+                    <div className="mt-2 flex flex-wrap gap-2 animate-in fade-in slide-in-from-top-1 duration-200">
+                      {settings.teamMemberDetails[assignee].email && (
+                        <div className="flex items-center gap-1 text-[9px] font-bold text-slate-500 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100">
+                          <Mail size={8} className="text-indigo-500" />
+                          {settings.teamMemberDetails[assignee].email}
+                        </div>
+                      )}
+                      {settings.teamMemberDetails[assignee].phone && (
+                        <div className="flex items-center gap-1 text-[9px] font-bold text-slate-500 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100">
+                          <Phone size={8} className="text-emerald-500" />
+                          {settings.teamMemberDetails[assignee].phone}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
              </div>
+             <div>
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Role</label>
+                <div className="relative">
+                   <Briefcase size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                   <select 
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2 text-sm font-medium outline-none focus:ring-2 focus:ring-indigo-500"
+                    value={role}
+                    onChange={(e) => setRole(e.target.value)}
+                   >
+                     <option value="">No Role</option>
+                     {(settings.roles || []).map(r => <option key={r} value={r}>{r}</option>)}
+                   </select>
+                </div>
+             </div>
+          </div>
+          <div className="grid grid-cols-1 gap-4">
              <div>
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Status</label>
                 <div className="relative">
@@ -167,6 +207,32 @@ export const CreateTaskKanbanModal: React.FC<CreateTaskKanbanModalProps> = ({
                    </select>
                 </div>
              </div>
+
+             <div className="flex items-center gap-6 mt-1">
+               <label className="flex items-center gap-2 cursor-pointer">
+                 <input 
+                   type="checkbox" 
+                   className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                   checked={!!isImportant}
+                   onChange={(e) => setIsImportant(e.target.checked)}
+                 />
+                 <span className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
+                   <AlertTriangle size={14} className={isImportant ? "text-amber-500 fill-amber-100" : "text-slate-400"} /> Important
+                 </span>
+               </label>
+
+               <label className="flex items-center gap-2 cursor-pointer">
+                 <input 
+                   type="checkbox" 
+                   className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                   checked={!!isToday}
+                   onChange={(e) => setIsToday(e.target.checked)}
+                 />
+                 <span className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
+                   <Calendar size={14} className={isToday ? "text-indigo-600" : "text-slate-400"} /> Today
+                 </span>
+               </label>
+            </div>
           </div>
           
            <div>
