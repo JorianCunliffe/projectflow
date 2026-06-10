@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getDatabase, ref, set, onValue } from 'firebase/database';
-import { Project, AppSettings } from '../types';
+import { Project, AppSettings, ScratchTask } from '../types';
 
 const CONFIG_STORAGE_KEY = 'projectflow_firebase_config';
 const DISCONNECT_FLAG_KEY = 'projectflow_manual_disconnect';
@@ -104,7 +104,7 @@ export const firebaseService = {
   },
 
   subscribe: (
-    callback: (data: { projects: Project[], settings: AppSettings } | null) => void,
+    callback: (data: { projects: Project[], settings: AppSettings, scratchTasks?: ScratchTask[] } | null) => void,
     onError?: (error: Error) => void
   ) => {
     if (!db) return () => {};
@@ -121,7 +121,7 @@ export const firebaseService = {
     );
   },
 
-  save: async (data: { projects: Project[], settings: AppSettings }) => {
+  save: async (data: { projects: Project[], settings: AppSettings, scratchTasks?: ScratchTask[] }) => {
     if (!db) return;
     const dataRef = ref(db, 'projectflow_v1');
     
@@ -130,6 +130,7 @@ export const firebaseService = {
     const cleanData = JSON.parse(JSON.stringify({
       projects: data.projects || [],
       settings: data.settings,
+      scratchTasks: data.scratchTasks || [],
       lastUpdated: Date.now()
     }));
 

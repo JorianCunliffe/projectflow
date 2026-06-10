@@ -40,7 +40,8 @@ import {
   PanelRightClose,
   AlertTriangle,
   Calendar,
-  Clock
+  Clock,
+  Edit2
 } from 'lucide-react';
 import { geminiService } from './services/geminiService';
 import { firebaseService } from './services/firebaseService';
@@ -49,6 +50,7 @@ import { firebaseService } from './services/firebaseService';
 import { Dashboard } from './components/Dashboard';
 import { ProjectSidebar } from './components/ProjectSidebar';
 import { KanbanBoard } from './components/KanbanBoard'; // New Import
+import { Scratchpad } from './components/Scratchpad';
 import { SettingsModal } from './components/modals/SettingsModal';
 import { CloudSetupModal } from './components/modals/CloudSetupModal';
 import { CreateProjectModal } from './components/modals/CreateProjectModal';
@@ -134,7 +136,10 @@ export const App: React.FC = () => {
   
   // Kanban State
   const [isKanbanMode, setIsKanbanMode] = useState(false);
+  const [isScratchMode, setIsScratchMode] = useState(false);
   const [kanbanGrouping, setKanbanGrouping] = useState<'project' | 'member'>('project');
+
+  const [scratchTasks, setScratchTasks] = useState<ScratchTask[]>([]);
   const [kanbanFilterProject, setKanbanFilterProject] = useState<string>('ALL');
   const [kanbanFilterMember, setKanbanFilterMember] = useState<string>('ALL');
   const [kanbanFilterRole, setKanbanFilterRole] = useState<string>('ALL');
@@ -242,6 +247,9 @@ export const App: React.FC = () => {
           const { projects: sanitizedProjects, nextProjectId, nextTaskId } = sanitizeProjects(parsed.projects, migratedSettings);
           setProjects(sanitizedProjects);
           setSettings({ ...migratedSettings, nextProjectId, nextTaskId });
+          if (parsed.scratchTasks && Array.isArray(parsed.scratchTasks)) {
+            setScratchTasks(parsed.scratchTasks);
+          }
         } catch (e) {
           console.error("Failed to load local state", e);
         }
@@ -280,6 +288,11 @@ export const App: React.FC = () => {
             teamMemberDetails: data.settings.teamMemberDetails || prev.teamMemberDetails || DEFAULT_SETTINGS.teamMemberDetails,
           }));
         }
+        if (data.scratchTasks && Array.isArray(data.scratchTasks)) {
+          setScratchTasks(data.scratchTasks);
+        } else {
+          setScratchTasks([]);
+        }
       } else {
         isRemoteUpdate.current = true;
         setProjects([]);
@@ -309,7 +322,7 @@ export const App: React.FC = () => {
 
         setCloudStatus('syncing');
         try {
-          await firebaseService.save({ projects, settings });
+          await firebaseService.save({ projects, settings, scratchTasks });
           setCloudStatus('connected');
           setSyncError(null);
         } catch (err: any) {
@@ -317,13 +330,13 @@ export const App: React.FC = () => {
           setSyncError(err.message || "Failed to save to cloud");
         }
       } else {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({ projects, settings }));
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ projects, settings, scratchTasks }));
       }
     };
 
     const timer = setTimeout(saveData, 800);
     return () => clearTimeout(timer);
-  }, [projects, settings, isDataLoaded, cloudStatus]);
+  }, [projects, settings, scratchTasks, isDataLoaded, cloudStatus]);
 
   // Handle Deep Linking (Magic Links from Email)
   useEffect(() => {
@@ -1351,22 +1364,31 @@ export const App: React.FC = () => {
         {/* VIEW SWITCHER IN HEADER */}
         <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg">
           <button 
-            onClick={() => setIsKanbanMode(false)}
+            onClick={() => { setIsKanbanMode(false); setIsScratchMode(false); }}
             className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-bold transition-all ${
-              !isKanbanMode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+              !isKanbanMode && !isScratchMode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
             }`}
           >
             {selectedProjectId ? <MapIcon size={16} /> : <Layout size={16} />}
             <span className="hidden sm:inline">{selectedProjectId ? 'Project Map' : 'Dashboard'}</span>
           </button>
           <button 
-            onClick={() => setIsKanbanMode(true)}
+            onClick={() => { setIsKanbanMode(true); setIsScratchMode(false); }}
             className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-bold transition-all ${
-              isKanbanMode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+              isKanbanMode && !isScratchMode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
             }`}
           >
             <Columns size={16} />
             <span className="hidden sm:inline">Kanban</span>
+          </button>
+          <button 
+            onClick={() => { setIsScratchMode(true); setIsKanbanMode(false); }}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-bold transition-all ${
+              isScratchMode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            <Edit2 size={16} />
+            <span className="hidden sm:inline">Scratch</span>
           </button>
         </div>
 
@@ -1489,7 +1511,33 @@ export const App: React.FC = () => {
         )}
 
         {/* MAIN VIEW CONTENT */}
-        {isKanbanMode ? (
+        {isScratchMode ? (
+          <Scratchpad 
+            scratchTasks={scratchTasks}
+            onUpdateScratchTasks={setScratchTasks}
+            projects={activeProjects}
+            settings={settings}
+            onPromoteTask={(scratchTaskId, projectId, milestoneId, subtask) => {
+              // 1. Remove from scratch tasks
+              setScratchTasks(prev => prev.filter(t => t.id !== scratchTaskId));
+              // 2. Add to project
+              setProjects(prevProjects => prevProjects.map(p => {
+                if (p.id !== projectId) return p;
+                return {
+                  ...p,
+                  updatedAt: Date.now(),
+                  milestones: p.milestones.map(m => {
+                    if (m.id !== milestoneId) return m;
+                    return {
+                      ...m,
+                      subtasks: [...m.subtasks, subtask]
+                    };
+                  })
+                };
+              }));
+            }}
+          />
+        ) : isKanbanMode ? (
           <KanbanBoard 
             projects={activeProjects}
             settings={settings}

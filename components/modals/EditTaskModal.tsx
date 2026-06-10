@@ -73,10 +73,11 @@ interface EditTaskModalProps {
   settings: AppSettings;
   onUpdate: (updates: Partial<Subtask>) => void;
   onDelete: () => void;
+  children?: React.ReactNode;
 }
 
 export const EditTaskModal: React.FC<EditTaskModalProps> = ({ 
-  isOpen, onClose, task, milestoneName, projectName, settings, onUpdate, onDelete 
+  isOpen, onClose, task, milestoneName, projectName, settings, onUpdate, onDelete, children 
 }) => {
   if (!isOpen) return null;
 
@@ -304,8 +305,10 @@ export const EditTaskModal: React.FC<EditTaskModalProps> = ({
               onChange={(e) => onUpdate({ description: e.target.value })}
             />
           </div>
+          
+          {children}
         </div>
-        
+
         <div className="flex justify-between items-center pt-4 border-t border-slate-100 mt-4 shrink-0">
           <button 
             onClick={onDelete}

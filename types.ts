@@ -87,9 +87,17 @@ export interface Project {
   profit?: number;
 }
 
+export interface ScratchTask {
+  id: string;
+  name: string;
+  projectId?: string;
+  createdAt: number;
+}
+
 export interface AppState {
   projects: Project[];
   selectedProjectId: string | null;
   showSubtasks: boolean;
   settings: AppSettings;
+  scratchTasks?: ScratchTask[];
 }
