@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Wand2, Banknote } from 'lucide-react';
+import { Wand2, Banknote, Copy } from 'lucide-react';
 import { AppSettings, ProjectType, Project } from '../../types';
 
 interface CreateProjectModalProps {
@@ -9,16 +9,18 @@ interface CreateProjectModalProps {
   isGenerating: boolean;
   onCreate: (projectData: any, useAI: boolean) => void;
   archivedProjects: Project[];
+  activeProjects: Project[];
   onReinstate: (projectId: string) => void;
 }
 
 export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({ 
-  isOpen, onClose, settings, isGenerating, onCreate, archivedProjects, onReinstate 
+  isOpen, onClose, settings, isGenerating, onCreate, archivedProjects, activeProjects, onReinstate 
 }) => {
   const [newProject, setNewProject] = useState({ 
     name: '', 
     company: '', 
     type: '', 
+    cloneFromId: '',
     startDate: new Date().toISOString().split('T')[0],
     cashRequirement: 0,
     debtRequirement: 0,
@@ -65,6 +67,22 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
             <select className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-5 py-3 outline-none focus:border-indigo-500 text-slate-900 font-bold shadow-sm transition-all" value={newProject.type} onChange={(e) => setNewProject({ ...newProject, type: e.target.value })}>
               <option value="">Select...</option>
               {(settings.projectTypes || []).map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+          <div className="col-span-2">
+            <label className="block text-xs font-black text-indigo-400 uppercase tracking-widest mb-2 flex items-center gap-1"><Copy size={12}/> Clone From Existing Project (Optional)</label>
+            <select className="w-full bg-indigo-50/50 border-2 border-indigo-100 rounded-2xl px-5 py-3 outline-none focus:border-indigo-500 text-indigo-900 font-bold shadow-sm transition-all" value={newProject.cloneFromId} onChange={(e) => setNewProject({ ...newProject, cloneFromId: e.target.value })}>
+              <option value="">Do not clone...</option>
+              {activeProjects.length > 0 && (
+                <optgroup label="Active Projects">
+                  {activeProjects.map(p => <option key={p.id} value={p.id}>{p.displayId} - {p.name}</option>)}
+                </optgroup>
+              )}
+              {archivedProjects.length > 0 && (
+                <optgroup label="Archived Projects">
+                  {archivedProjects.map(p => <option key={p.id} value={p.id}>{p.displayId} - {p.name}</option>)}
+                </optgroup>
+              )}
             </select>
           </div>
           <div className="col-span-2">
@@ -149,20 +167,32 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
         <div className="grid grid-cols-2 gap-4">
           <button onClick={onClose} className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-black py-4 rounded-2xl transition-all active:scale-95 shadow-sm">Cancel</button>
           <div className="flex flex-col gap-2">
-            <button 
-              onClick={() => onCreate(newProject, false)} 
-              disabled={!newProject.name}
-              className="bg-white border-2 border-indigo-100 hover:border-indigo-600 text-indigo-700 font-bold py-3 rounded-2xl transition-all shadow-sm active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Create Blank
-            </button>
-            <button 
-              onClick={() => onCreate(newProject, true)} 
-              disabled={!newProject.name}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white font-black py-4 rounded-2xl shadow-lg shadow-indigo-200 transition-all active:scale-95 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Wand2 size={18} /> AI Generate
-            </button>
+            {!newProject.cloneFromId ? (
+              <>
+                <button 
+                  onClick={() => onCreate(newProject, false)} 
+                  disabled={!newProject.name}
+                  className="bg-white border-2 border-indigo-100 hover:border-indigo-600 text-indigo-700 font-bold py-3 rounded-2xl transition-all shadow-sm active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Create Blank
+                </button>
+                <button 
+                  onClick={() => onCreate(newProject, true)} 
+                  disabled={!newProject.name}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-black py-4 rounded-2xl shadow-lg shadow-indigo-200 transition-all active:scale-95 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Wand2 size={18} /> AI Generate
+                </button>
+              </>
+            ) : (
+              <button 
+                onClick={() => onCreate(newProject, false)} 
+                disabled={!newProject.name}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white font-black py-4 h-full rounded-2xl shadow-lg shadow-indigo-200 transition-all active:scale-95 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Copy size={18} /> Clone Project
+              </button>
+            )}
           </div>
         </div>
       </div>

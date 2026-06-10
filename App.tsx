@@ -806,6 +806,7 @@ export const App: React.FC = () => {
   const handleCreateProject = async (newProjectData: any, useAI: boolean) => {
     setIsGenerating(true);
     let milestones: Milestone[] = [];
+    let markers: TimelineMarker[] | undefined = undefined;
     let currentTaskId = settings.nextTaskId || 1;
 
     const generateSubtask = (s: any) => {
@@ -829,7 +830,36 @@ export const App: React.FC = () => {
       subtasks: [generateSubtask({ name: 'Define Scope', description: 'Basic requirements gather' })]
     }];
 
-    if (useAI) {
+    if (newProjectData.cloneFromId) {
+      const parentProject = [...projects, ...archivedProjects].find(p => p.id === newProjectData.cloneFromId);
+      if (parentProject) {
+        const idMap: Record<string, string> = {};
+        milestones = parentProject.milestones.map(m => {
+          const newId = Math.random().toString(36).substr(2, 9);
+          idMap[m.id] = newId;
+          return {
+            ...m,
+            id: newId,
+            completedAt: undefined,
+            subtasks: m.subtasks.map(s => ({
+              ...s,
+              id: Math.random().toString(36).substr(2, 9),
+              displayId: `T-${currentTaskId++}`,
+              status: 'Not started',
+              completedAt: undefined,
+              assignedTo: '' // Optional: clear assignee
+            }))
+          };
+        });
+        milestones = milestones.map(m => ({
+          ...m,
+          dependsOn: m.dependsOn ? m.dependsOn.map(did => idMap[did] || did) : []
+        }));
+        markers = parentProject.markers?.map(mk => ({ ...mk, id: Math.random().toString(36).substr(2, 9) }));
+      } else {
+        milestones = defaultMilestones;
+      }
+    } else if (useAI) {
       const res = await geminiService.generateProjectStructure(newProjectData.name, newProjectData.type as any);
       if (res && res.milestones) {
         milestones = res.milestones.map((m: any) => ({
@@ -860,6 +890,7 @@ export const App: React.FC = () => {
       valueAtCompletion: newProjectData.valueAtCompletion,
       profit: newProjectData.profit,
       milestones,
+      markers,
       createdAt: now,
       updatedAt: now
     };
@@ -1760,6 +1791,7 @@ export const App: React.FC = () => {
         isGenerating={isGenerating} 
         onCreate={handleCreateProject} 
         archivedProjects={archivedProjects}
+        activeProjects={projects}
         onReinstate={handleReinstateProject}
       />
       {editingProject && (
