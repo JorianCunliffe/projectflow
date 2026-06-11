@@ -8,15 +8,24 @@ interface ProjectSidebarProps {
     totalTasks: number;
     completedTasks: number;
     totalEstimatedDays: number;
+    totalEstimatedInUnit: number;
+    bufferUsedInUnit: number;
     finishDate: Date;
     statusCount: Record<string, number>;
   } | null;
   settings: AppSettings;
   formatDate: (date: Date | number) => string;
+  projectTimeUnit: string;
+  projectTimeBuffer: number;
 }
 
-export const ProjectSidebar: React.FC<ProjectSidebarProps> = ({ stats, settings, formatDate }) => {
+export const ProjectSidebar: React.FC<ProjectSidebarProps> = ({ stats, settings, formatDate, projectTimeUnit, projectTimeBuffer }) => {
   if (!stats) return null;
+  
+  const bufferRemaining = projectTimeBuffer - stats.bufferUsedInUnit;
+  // If buffer usage exceeds the allocated buffer, remaining is negative.
+  const bufferColor = bufferRemaining < 0 ? 'text-rose-600' : 'text-emerald-600';
+  const bufferBg = bufferRemaining < 0 ? 'bg-rose-50 border-rose-100' : 'bg-emerald-50 border-emerald-100';
   
   return (
     <div className="hidden lg:flex w-80 bg-white border-l border-slate-200 shrink-0 flex-col z-30 shadow-xl shadow-slate-200/50 print:hidden">
@@ -33,12 +42,32 @@ export const ProjectSidebar: React.FC<ProjectSidebarProps> = ({ stats, settings,
             <div className="grid grid-cols-2 gap-4">
               <div className="flex flex-col">
                 <span className="text-[9px] font-black text-slate-400 uppercase tracking-tighter">Est. Duration</span>
-                <span className="text-sm font-black text-slate-900">{stats.totalEstimatedDays} Days</span>
+                <span className="text-sm font-black text-slate-900 capitalize">{stats.totalEstimatedInUnit} {projectTimeUnit}</span>
               </div>
               <div className="flex flex-col">
                 <span className="text-[9px] font-black text-slate-400 uppercase tracking-tighter">Target Finish</span>
                 <span className="text-sm font-black text-slate-900">{formatDate(stats.finishDate)}</span>
               </div>
+            </div>
+          </div>
+
+          <div className={`rounded-2xl p-4 border space-y-3 ${bufferBg}`}>
+            <div className={`flex items-center gap-2 ${bufferColor} font-bold text-xs uppercase tracking-wider mb-2`}>
+              <Activity size={14} /> Time Buffer
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+               <div className="flex flex-col">
+                 <span className="text-[9px] font-black opacity-60 uppercase tracking-tighter">Allocated</span>
+                 <span className="text-sm font-black capitalize">{projectTimeBuffer} {projectTimeUnit?.[0] || 'd'}</span>
+               </div>
+               <div className="flex flex-col">
+                 <span className="text-[9px] font-black opacity-60 uppercase tracking-tighter">Used</span>
+                 <span className="text-sm font-black capitalize">{stats.bufferUsedInUnit} {projectTimeUnit?.[0] || 'd'}</span>
+               </div>
+               <div className="flex flex-col">
+                 <span className="text-[9px] font-black opacity-60 uppercase tracking-tighter">Remaining</span>
+                 <span className="text-sm font-black capitalize">{bufferRemaining} {projectTimeUnit?.[0] || 'd'}</span>
+               </div>
             </div>
           </div>
 

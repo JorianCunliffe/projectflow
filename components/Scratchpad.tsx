@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Project, ScratchTask, Subtask, Milestone } from '../types';
+import { Project, ScratchTask, Subtask, Milestone, AppSettings } from '../types';
 import { Plus, Edit2, Check, Trash2, ArrowRight } from 'lucide-react';
 import { EditTaskModal } from './modals/EditTaskModal';
 
@@ -180,6 +180,7 @@ export const Scratchpad: React.FC<ScratchpadProps> = ({ scratchTasks, onUpdateSc
           onDelete={() => { handleDeleteTask(modalScratchId!); setModalTask(null); setModalScratchId(null); }}
           milestoneName={`Scratch`}
           projectName={`Scratch`}
+          projectTimeUnit={projects.find(p => p.id === modalProject)?.timeUnit || 'days'}
           settings={settings} 
         >
           <div className="mb-4 space-y-4 pt-4 border-t border-slate-100">

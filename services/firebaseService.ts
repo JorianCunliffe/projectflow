@@ -1,9 +1,11 @@
 import { initializeApp } from 'firebase/app';
-import { getDatabase, ref, set, onValue } from 'firebase/database';
+import { getDatabase, ref as dbRef, set, onValue, get } from 'firebase/database';
+import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { Project, AppSettings, ScratchTask } from '../types';
 
 const CONFIG_STORAGE_KEY = 'projectflow_firebase_config';
 const DISCONNECT_FLAG_KEY = 'projectflow_manual_disconnect';
+const ACCOUNT_ID = 'default_user';
 
 // User provided configuration
 const DEFAULT_CONFIG = {
@@ -18,6 +20,7 @@ const DEFAULT_CONFIG = {
 };
 
 let db: any = null;
+let storage: any = null;
 let isConfigured = false;
 
 // specific parsing to handle the user pasting the raw JS object from Firebase console
@@ -76,6 +79,7 @@ try {
     if (config && config.databaseURL) {
       const app = initializeApp(config);
       db = getDatabase(app);
+      storage = getStorage(app);
       isConfigured = true;
     }
   }
@@ -109,8 +113,25 @@ export const firebaseService = {
   ) => {
     if (!db) return () => {};
 
-    const dataRef = ref(db, 'projectflow_v1');
-    return onValue(dataRef, 
+    const legacyDataRef = dbRef(db, 'projectflow_v1');
+    const accountDataRef = dbRef(db, `accounts/${ACCOUNT_ID}/projectflow_v1`);
+
+    // Run migration check without blocking the return of the unsubscribe function
+    (async () => {
+      try {
+        const snap = await get(accountDataRef);
+        if (!snap.exists()) {
+          const legacySnap = await get(legacyDataRef);
+          if (legacySnap.exists()) {
+            await set(accountDataRef, legacySnap.val());
+          }
+        }
+      } catch (e) {
+        console.warn("Migration check failed", e);
+      }
+    })();
+
+    return onValue(accountDataRef, 
       (snapshot) => {
         const data = snapshot.val();
         callback(data);
@@ -123,7 +144,7 @@ export const firebaseService = {
 
   save: async (data: { projects: Project[], settings: AppSettings, scratchTasks?: ScratchTask[] }) => {
     if (!db) return;
-    const dataRef = ref(db, 'projectflow_v1');
+    const dataRef = dbRef(db, `accounts/${ACCOUNT_ID}/projectflow_v1`);
     
     // Sanitize data to remove undefined values which Firebase rejects.
     // JSON.stringify removes keys with undefined values in objects.
@@ -135,5 +156,17 @@ export const firebaseService = {
     }));
 
     await set(dataRef, cleanData);
+  },
+
+  uploadRecording: async (file: Blob, subtaskId: string): Promise<string | null> => {
+    if (!storage) {
+      console.warn("Storage not initialized.");
+      return null;
+    }
+    const ext = file.type.includes('video') ? 'webm' : (file.type.includes('audio') ? 'webm' : 'bin');
+    const timestamp = Date.now();
+    const fileRef = storageRef(storage, `accounts/${ACCOUNT_ID}/recordings/${subtaskId}_${timestamp}.${ext}`);
+    await uploadBytes(fileRef, file);
+    return await getDownloadURL(fileRef);
   }
 };

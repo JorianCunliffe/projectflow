@@ -75,7 +75,6 @@ interface MilestoneNodeProps {
   onAddParallel: (milestoneId: string) => void;
   onEditSubtask: (milestoneId: string, subtaskIndex: number) => void;
   onUpdateName: (milestoneId: string, newName: string) => void;
-  onUpdateDuration: (milestoneId: string, days: number) => void;
   onDeleteMilestone: (milestoneId: string) => void;
   onMove: (id: string, x: number, y: number, withSubtree: boolean) => void;
   onBrainstorm: (milestoneId: string) => void;
@@ -95,6 +94,8 @@ interface MilestoneNodeProps {
   onClick: () => void;
   settings: AppSettings;
   projectName: string;
+  projectTimeUnit: string;
+  duration: number;
 }
 
 export const MilestoneNode: React.FC<MilestoneNodeProps> = ({
@@ -106,7 +107,6 @@ export const MilestoneNode: React.FC<MilestoneNodeProps> = ({
   onAddParallel,
   onEditSubtask,
   onUpdateName,
-  onUpdateDuration,
   onDeleteMilestone,
   onMove,
   onBrainstorm,
@@ -122,7 +122,9 @@ export const MilestoneNode: React.FC<MilestoneNodeProps> = ({
   dateFormat,
   onClick,
   settings,
-  projectName
+  projectName,
+  projectTimeUnit,
+  duration
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [tempName, setTempName] = useState(milestone.name);
@@ -470,15 +472,10 @@ export const MilestoneNode: React.FC<MilestoneNodeProps> = ({
               Tasks ({subtasks.length})
             </div>
             <div className="flex items-center gap-1">
-               <input 
-                type="number" 
-                className="w-8 bg-slate-100 rounded text-[9px] font-bold text-slate-600 text-center outline-none focus:ring-1 focus:ring-indigo-500"
-                value={milestone.estimatedDuration || 0}
-                onChange={(e) => onUpdateDuration(milestone.id, parseInt(e.target.value) || 0)}
-                onClick={(e) => e.stopPropagation()}
-                title="Estimated Days"
-              />
-              <span className="text-[9px] font-bold text-slate-400">DAYS</span>
+               <span className="w-8 bg-slate-100 rounded text-[9px] font-bold text-slate-600 text-center inline-block py-0.5">
+                 {duration}
+               </span>
+              <span className="text-[9px] font-bold text-slate-400 uppercase">{projectTimeUnit}</span>
             </div>
           </div>
           <div className="flex flex-col gap-1.5 max-h-48 overflow-y-auto pr-1">

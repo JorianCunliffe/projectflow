@@ -22,6 +22,8 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
     type: '', 
     cloneFromId: '',
     startDate: new Date().toISOString().split('T')[0],
+    timeUnit: 'days',
+    timeBuffer: 0,
     cashRequirement: 0,
     debtRequirement: 0,
     valueAtCompletion: 0,
@@ -85,13 +87,35 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
               )}
             </select>
           </div>
-          <div className="col-span-2">
+          <div className="col-span-1">
             <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Start Date</label>
             <input 
               type="date" 
               className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-5 py-3 outline-none focus:border-indigo-500 text-slate-900 font-bold shadow-sm transition-all"
               value={newProject.startDate}
               onChange={(e) => setNewProject({ ...newProject, startDate: e.target.value })}
+            />
+          </div>
+          <div className="col-span-1">
+            <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Estimates Time Unit</label>
+            <select 
+              className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-5 py-3 outline-none focus:border-indigo-500 text-slate-900 font-bold shadow-sm transition-all"
+              value={newProject.timeUnit}
+              onChange={(e) => setNewProject({ ...newProject, timeUnit: e.target.value })}
+            >
+              <option value="hours">Hours</option>
+              <option value="days">Days</option>
+              <option value="weeks">Weeks</option>
+            </select>
+          </div>
+          <div className="col-span-2">
+            <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Time Buffer ({newProject.timeUnit})</label>
+            <input 
+              type="number" 
+              className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-5 py-3 outline-none focus:border-indigo-500 text-slate-900 font-bold shadow-sm transition-all"
+              value={newProject.timeBuffer || ''}
+              onChange={(e) => setNewProject({ ...newProject, timeBuffer: parseFloat(e.target.value) || 0 })}
+              placeholder="0"
             />
           </div>
         </div>

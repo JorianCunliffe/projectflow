@@ -26,6 +26,7 @@ interface FlattenedTask {
   task: Subtask;
   projectId: string;
   projectName: string;
+  projectTimeUnit: string;
   milestoneId: string;
   milestoneName: string;
   subtaskIndex: number;
@@ -77,6 +78,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
             task: s,
             projectId: p.id,
             projectName: p.name,
+            projectTimeUnit: p.timeUnit || 'days',
             milestoneId: m.id,
             milestoneName: m.name,
             subtaskIndex: idx
@@ -248,6 +250,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                                 projectName={flatTask.projectName}
                                 projectId={flatTask.projectId}
                                 milestoneId={flatTask.milestoneId}
+                                projectTimeUnit={flatTask.projectTimeUnit}
                                 subtaskIndex={flatTask.subtaskIndex}
                                 settings={settings}
                                 onClick={() => onTaskClick?.(flatTask.projectId, flatTask.milestoneId, flatTask.subtaskIndex)}

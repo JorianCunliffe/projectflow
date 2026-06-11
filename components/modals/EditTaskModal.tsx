@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Mail, Phone, X, Trash2, ExternalLink, Calendar, Clock, AlertTriangle, Loader2, Check } from 'lucide-react';
 import { Subtask, AppSettings } from '../../types';
 import { sendTaskEmail } from '../../lib/emailUtils';
+import { ScreenRecorder } from '../ScreenRecorder';
 
 const TaskEmailButton: React.FC<{
   task: Subtask,
@@ -74,10 +75,11 @@ interface EditTaskModalProps {
   onUpdate: (updates: Partial<Subtask>) => void;
   onDelete: () => void;
   children?: React.ReactNode;
+  projectTimeUnit?: string;
 }
 
 export const EditTaskModal: React.FC<EditTaskModalProps> = ({ 
-  isOpen, onClose, task, milestoneName, projectName, settings, onUpdate, onDelete, children 
+  isOpen, onClose, task, milestoneName, projectName, settings, onUpdate, onDelete, children, projectTimeUnit 
 }) => {
   if (!isOpen) return null;
 
@@ -237,7 +239,7 @@ export const EditTaskModal: React.FC<EditTaskModalProps> = ({
              <div className="flex items-center gap-2 mb-3 text-indigo-600 font-bold text-xs uppercase tracking-wider">
                <Clock size={14} /> Schedule & Effort
              </div>
-             <div className="grid grid-cols-2 gap-4">
+             <div className="grid grid-cols-3 gap-4">
                 <div>
                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Due Date</label>
                    <div className="relative">
@@ -260,15 +262,24 @@ export const EditTaskModal: React.FC<EditTaskModalProps> = ({
                        value={task.estimatedTime || ''}
                        onChange={(e) => onUpdate({ estimatedTime: parseFloat(e.target.value) || undefined })}
                      />
-                     <select
-                       className="flex-1 bg-white border border-slate-200 rounded-xl px-2 py-2 text-sm text-slate-900 font-bold outline-none focus:border-indigo-500"
-                       value={task.timeUnit || 'hours'}
-                       onChange={(e) => onUpdate({ timeUnit: e.target.value as any })}
-                     >
-                       <option value="hours">Hours</option>
-                       <option value="days">Days</option>
-                       <option value="weeks">Weeks</option>
-                     </select>
+                     <div className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-2 py-2 text-sm text-slate-500 font-bold flex items-center justify-center shadow-sm">
+                       <span className="uppercase text-[10px]">{projectTimeUnit || 'days'}</span>
+                     </div>
+                   </div>
+                </div>
+                <div>
+                   <label className="block text-[10px] font-bold text-emerald-600 uppercase mb-1">Actual Effort</label>
+                   <div className="flex gap-2">
+                     <input 
+                       type="number"
+                       className="w-16 bg-emerald-50 border border-emerald-200 rounded-xl px-2 py-2 text-sm text-center text-emerald-900 font-bold outline-none focus:border-emerald-500"
+                       placeholder="0"
+                       value={task.actualTime || ''}
+                       onChange={(e) => onUpdate({ actualTime: parseFloat(e.target.value) || undefined })}
+                     />
+                     <div className="flex-1 bg-emerald-50 border border-emerald-200 rounded-xl px-2 py-2 text-sm text-emerald-600 font-bold flex items-center justify-center shadow-sm">
+                       <span className="uppercase text-[10px]">{projectTimeUnit || 'days'}</span>
+                     </div>
                    </div>
                 </div>
              </div>
@@ -306,6 +317,13 @@ export const EditTaskModal: React.FC<EditTaskModalProps> = ({
             />
           </div>
           
+          <ScreenRecorder 
+            taskId={task.id}
+            existingUrl={task.recordingUrl}
+            onUploadSuccess={(url, type) => onUpdate({ recordingUrl: url, recordingType: type })}
+            onRemove={() => onUpdate({ recordingUrl: undefined, recordingType: undefined })}
+          />
+
           {children}
         </div>
 

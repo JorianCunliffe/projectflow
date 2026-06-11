@@ -5,6 +5,7 @@ import {
   Milestone, 
   Subtask, 
   AppSettings,
+  ScratchTask,
   TimelineMarker as TimelineMarkerType
 } from './types';
 import { MilestoneNode } from './components/MilestoneNode';
@@ -125,6 +126,25 @@ const migrateSettings = (loadedSettings: Partial<AppSettings>): AppSettings => {
   }
   
   return merged;
+};
+
+export const getMilestoneDuration = (milestone: Milestone) => {
+  if (!milestone.subtasks || milestone.subtasks.length === 0) return 0;
+  return Math.max(...milestone.subtasks.map(s => s.estimatedTime || 0));
+};
+
+export const getMilestoneActualDuration = (milestone: Milestone) => {
+  if (!milestone.subtasks || milestone.subtasks.length === 0) return 0;
+  // If no task has actual time yet, it hasn't accrued 'excess' conceptually, but let's fall back to estimated time for calculation
+  return Math.max(...milestone.subtasks.map(s => s.actualTime !== undefined ? s.actualTime : (s.estimatedTime || 0)));
+};
+
+export const getMilestoneDurationInDays = (milestone: Milestone, project: Project) => {
+  const duration = getMilestoneDuration(milestone);
+  const unit = project.timeUnit || 'days';
+  if (unit === 'weeks') return duration * 7;
+  if (unit === 'hours') return duration / 24;
+  return duration;
 };
 
 export const App: React.FC = () => {
@@ -626,26 +646,77 @@ export const App: React.FC = () => {
   }, [selectedProjectId, isKanbanMode]);
 
   const milestoneTimeline = useMemo(() => {
-    if (!activeProject) return new Map<string, { targetDate: Date }>();
-    const results = new Map<string, { targetDate: Date }>();
-    const calculate = (mId: string): Date => {
+    if (!activeProject) return { dates: new Map<string, { targetDate: Date, predecessor: string | null }>(), criticalConnections: new Set<string>() };
+    const dates = new Map<string, { targetDate: Date, actualDate: Date, predecessor: string | null }>();
+    const calculate = (mId: string): { targetDate: Date, actualDate: Date } => {
       const milestone = activeProject.milestones.find(m => m.id === mId);
-      if (!milestone) return new Date(activeProject.startDate);
-      if (results.has(mId)) return results.get(mId)!.targetDate;
+      if (!milestone) return { targetDate: new Date(activeProject.startDate), actualDate: new Date(activeProject.startDate) };
+      if (dates.has(mId)) {
+        const cached = dates.get(mId)!;
+        return { targetDate: cached.targetDate, actualDate: cached.actualDate };
+      }
 
-      let maxParentDate = new Date(activeProject.startDate);
+      let maxParentTarget = new Date(activeProject.startDate);
+      let maxParentActual = new Date(activeProject.startDate);
+      let predecessor: string | null = null;
+      
       (milestone.dependsOn || []).forEach(parentId => {
-        const parentDate = calculate(parentId);
-        if (parentDate > maxParentDate) maxParentDate = parentDate;
+        const parentDates = calculate(parentId);
+        if (parentDates.targetDate > maxParentTarget) {
+          maxParentTarget = parentDates.targetDate;
+          predecessor = parentId;
+        }
+        if (parentDates.actualDate > maxParentActual) {
+          maxParentActual = parentDates.actualDate;
+        }
       });
 
-      const finishDate = new Date(maxParentDate);
-      finishDate.setDate(finishDate.getDate() + (milestone.estimatedDuration || 0));
-      results.set(mId, { targetDate: finishDate });
-      return finishDate;
+      const finishDate = new Date(maxParentTarget);
+      const targetDurationDays = getMilestoneDurationInDays(milestone, activeProject);
+      finishDate.setDate(finishDate.getDate() + targetDurationDays);
+      
+      const actualFinishDate = new Date(maxParentActual);
+      
+      const actualDuration = getMilestoneActualDuration(milestone);
+      const unit = activeProject.timeUnit || 'days';
+      let actualDurationDays = actualDuration;
+      if (unit === 'weeks') actualDurationDays = actualDuration * 7;
+      if (unit === 'hours') actualDurationDays = actualDuration / 24;
+      
+      actualFinishDate.setDate(actualFinishDate.getDate() + actualDurationDays);
+
+      dates.set(mId, { targetDate: finishDate, actualDate: actualFinishDate, predecessor });
+      return { targetDate: finishDate, actualDate: actualFinishDate };
     };
+    
     activeProject.milestones.forEach(m => calculate(m.id));
-    return results;
+
+    let maxDate = new Date(activeProject.startDate);
+    let maxActualDate = new Date(activeProject.startDate);
+    let lastNode: string | null = null;
+    dates.forEach((val, key) => {
+      if (val.targetDate > maxDate) {
+        maxDate = val.targetDate;
+        lastNode = key;
+      }
+      if (val.actualDate > maxActualDate) {
+        maxActualDate = val.actualDate;
+      }
+    });
+
+    const criticalConnections = new Set<string>();
+    let curr = lastNode;
+    const visited = new Set<string>();
+    while(curr && !visited.has(curr)) {
+      visited.add(curr);
+      const pred = dates.get(curr)?.predecessor;
+      if (pred) {
+        criticalConnections.add(`${pred}-${curr}`);
+      }
+      curr = pred || null;
+    }
+
+    return { dates, criticalConnections, maxDate, maxActualDate };
   }, [activeProject]);
 
   const projectStats = useMemo(() => {
@@ -653,10 +724,14 @@ export const App: React.FC = () => {
     let totalTasks = 0;
     let completedTasks = 0;
     let totalEstimatedDays = 0;
+    let totalEstimatedInUnit = 0;
     const statusCount: Record<string, number> = {};
 
     activeProject.milestones.forEach(m => {
-      totalEstimatedDays += (m.estimatedDuration || 0);
+      totalEstimatedDays += getMilestoneDurationInDays(m, activeProject);
+      const mDuration = getMilestoneDuration(m);
+      totalEstimatedInUnit += mDuration;
+      
       (m.subtasks || []).forEach(s => {
         totalTasks++;
         if (s.status === 'Complete') completedTasks++;
@@ -664,11 +739,31 @@ export const App: React.FC = () => {
       });
     });
 
-    const finishDate = new Date(activeProject.startDate);
-    finishDate.setDate(finishDate.getDate() + totalEstimatedDays);
+    const finishDate = (milestoneTimeline as any).maxDate || new Date(activeProject.startDate);
+    const actualFinishDate = (milestoneTimeline as any).maxActualDate || new Date(activeProject.startDate);
+    
+    const msInDay = 1000 * 60 * 60 * 24;
+    const diffDays = Math.round((finishDate.getTime() - new Date(activeProject.startDate).getTime()) / msInDay);
+    const actualDiffDays = Math.round((actualFinishDate.getTime() - new Date(activeProject.startDate).getTime()) / msInDay);
+    
+    // Convert back from days to the activeProject.timeUnit if needed
+    let cpDurationInUnit = diffDays;
+    let actualDurationInUnit = actualDiffDays;
+    
+    const unit = activeProject.timeUnit || 'days';
+    if (unit === 'weeks') {
+      cpDurationInUnit = diffDays / 7;
+      actualDurationInUnit = actualDiffDays / 7;
+    }
+    if (unit === 'hours') {
+      cpDurationInUnit = diffDays * 24;
+      actualDurationInUnit = actualDiffDays * 24;
+    }
 
-    return { totalTasks, completedTasks, statusCount, totalEstimatedDays, finishDate };
-  }, [activeProject]);
+    const bufferUsedInUnit = actualDurationInUnit - cpDurationInUnit;
+
+    return { totalTasks, completedTasks, statusCount, totalEstimatedDays, totalEstimatedInUnit: cpDurationInUnit, bufferUsedInUnit, finishDate };
+  }, [activeProject, milestoneTimeline]);
 
   const handleMouseDown = (e: React.MouseEvent) => {
     if ((e.target as HTMLElement).closest('.pointer-events-auto')) return;
@@ -819,7 +914,7 @@ export const App: React.FC = () => {
   const handleCreateProject = async (newProjectData: any, useAI: boolean) => {
     setIsGenerating(true);
     let milestones: Milestone[] = [];
-    let markers: TimelineMarker[] | undefined = undefined;
+    let markers: TimelineMarkerType[] | undefined = undefined;
     let currentTaskId = settings.nextTaskId || 1;
 
     const generateSubtask = (s: any) => {
@@ -898,6 +993,8 @@ export const App: React.FC = () => {
       company: newProjectData.company || settings.companies[0],
       type: newProjectData.type || settings.projectTypes[0],
       startDate: new Date(newProjectData.startDate).getTime(),
+      timeUnit: newProjectData.timeUnit || 'days',
+      timeBuffer: newProjectData.timeBuffer || 0,
       cashRequirement: newProjectData.cashRequirement,
       debtRequirement: newProjectData.debtRequirement,
       valueAtCompletion: newProjectData.valueAtCompletion,
@@ -924,9 +1021,6 @@ export const App: React.FC = () => {
   };
   const handleUpdateMilestoneName = (mId: string, newName: string) => {
     setProjects(prev => prev.map(p => p.id === selectedProjectId ? { ...p, updatedAt: Date.now(), milestones: p.milestones.map(m => m.id === mId ? { ...m, name: newName } : m) } : p));
-  };
-  const handleUpdateMilestoneDuration = (mId: string, days: number) => {
-    setProjects(prev => prev.map(p => p.id === selectedProjectId ? { ...p, updatedAt: Date.now(), milestones: p.milestones.map(m => m.id === mId ? { ...m, estimatedDuration: days } : m) } : p));
   };
   const handleDeleteMilestone = (mId: string) => setMilestoneToDelete(mId);
   const confirmDeleteMilestone = () => {
@@ -1699,7 +1793,8 @@ export const App: React.FC = () => {
                                           {canvasData.milestones.map(m => (m.dependsOn||[]).map(pid => {
                                             const p = canvasData.milestones.find(x=>x.id===pid);
                                             if(!p) return null;
-                                            return <path key={`m-${pid}-${m.id}`} d={`M ${(p.x||0)+50} ${p.y} C ${(p.x||0)+((m.x||0)-(p.x||0))/2} ${p.y}, ${(p.x||0)+((m.x||0)-(p.x||0))/2} ${m.y}, ${(m.x||0)-50} ${m.y}`} stroke="#b5c4d6" strokeWidth={Math.max(4, 2/scale)} fill="none" />
+                                            const isCritical = milestoneTimeline.criticalConnections.has(`${pid}-${m.id}`);
+                                            return <path key={`m-${pid}-${m.id}`} d={`M ${(p.x||0)+50} ${p.y} C ${(p.x||0)+((m.x||0)-(p.x||0))/2} ${p.y}, ${(p.x||0)+((m.x||0)-(p.x||0))/2} ${m.y}, ${(m.x||0)-50} ${m.y}`} stroke={isCritical ? "#ef4444" : "#b5c4d6"} strokeWidth={Math.max(4, 2/scale)} fill="none" />
                                           }))}
                                           {canvasData.milestones.map(m => <circle key={m.id} cx={m.x} cy={m.y} r={Math.max(10, 4/scale)} fill="#6366f1" />)}
                                        </g>
@@ -1737,14 +1832,31 @@ export const App: React.FC = () => {
                           <defs>
                             <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#cbd5e1" /></marker>
                             <marker id="arrow-active" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#6366f1" /></marker>
+                            <marker id="arrow-critical" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#ef4444" /></marker>
                           </defs>
                           {canvasData.milestones.map(m => (m.dependsOn || []).map(parentId => {
                             const parent = canvasData.milestones.find(mil => mil.id === parentId);
                             if (!parent) return null;
+                            const isCritical = milestoneTimeline.criticalConnections.has(`${parentId}-${m.id}`);
                             const isActive = hoveredMilestoneId === m.id || hoveredMilestoneId === parentId;
                             const dx = (m.x || 0) - (parent.x || 0);
+                            
+                            let strokeColor = "#cbd5e1";
+                            let markerEnd = "url(#arrow)";
+                            let strokeWidth = "2";
+                            
+                            if (isActive) {
+                              strokeColor = "#6366f1";
+                              markerEnd = "url(#arrow-active)";
+                              strokeWidth = "3";
+                            } else if (isCritical) {
+                              strokeColor = "#ef4444";
+                              markerEnd = "url(#arrow-critical)";
+                              strokeWidth = "3";
+                            }
+                            
                             return (
-                              <path key={`${parentId}-${m.id}`} d={`M ${(parent.x || 0) + 50} ${parent.y!} C ${(parent.x || 0) + dx / 2} ${parent.y!}, ${(parent.x || 0) + dx / 2} ${m.y!}, ${(m.x || 0) - 50} ${m.y!}`} stroke={isActive ? "#6366f1" : "#cbd5e1"} strokeWidth={isActive ? "3" : "2"} fill="transparent" markerEnd={isActive ? "url(#arrow-active)" : "url(#arrow)"} className="transition-all duration-300" />
+                              <path key={`${parentId}-${m.id}`} d={`M ${(parent.x || 0) + 50} ${parent.y!} C ${(parent.x || 0) + dx / 2} ${parent.y!}, ${(parent.x || 0) + dx / 2} ${m.y!}, ${(m.x || 0) - 50} ${m.y!}`} stroke={strokeColor} strokeWidth={strokeWidth} fill="transparent" markerEnd={markerEnd} className="transition-all duration-300" />
                             );
                           }))}
                         </svg>
@@ -1773,7 +1885,6 @@ export const App: React.FC = () => {
                                   onAddParallel={(id) => handleAddMilestone(activeProject!.id, id, true)}
                                   onEditSubtask={(mId, sIdx) => setIsEditingSubtask({ mId, sIdx })}
                                   onUpdateName={handleUpdateMilestoneName}
-                                  onUpdateDuration={handleUpdateMilestoneDuration}
                                   onDeleteMilestone={handleDeleteMilestone}
                                   onMove={handleMoveMilestone}
                                   onBrainstorm={handleBrainstormSubtasks}
@@ -1785,10 +1896,12 @@ export const App: React.FC = () => {
                                   children={children}
                                   isLinkingMode={!!linkingSourceId}
                                   isSource={linkingSourceId === m.id}
-                                  targetDate={milestoneTimeline.get(m.id)?.targetDate}
+                                  targetDate={milestoneTimeline.dates.get(m.id)?.targetDate}
                                   dateFormat={settings.dateFormat}
                                   settings={settings}
                                   projectName={activeProject?.name || ''}
+                                  projectTimeUnit={activeProject?.timeUnit || 'days'}
+                                  duration={getMilestoneDuration(m)}
                                   onClick={() => {}}
                                 />
                               </div>
@@ -1814,7 +1927,7 @@ export const App: React.FC = () => {
                     </div>
                   </div>
                 </div>
-                {showProjectPanel && <ProjectSidebar stats={projectStats} settings={settings} formatDate={formatDate} />}
+                {showProjectPanel && <ProjectSidebar stats={projectStats} settings={settings} formatDate={formatDate} projectTimeUnit={activeProject?.timeUnit || 'days'} projectTimeBuffer={activeProject?.timeBuffer || 0} />}
               </div>
             )}
           </>
@@ -1861,6 +1974,7 @@ export const App: React.FC = () => {
            task={activeProject.milestones.find(m => m.id === isEditingSubtask.mId)?.subtasks[isEditingSubtask.sIdx!]!}
            milestoneName={activeProject.milestones.find(m => m.id === isEditingSubtask.mId)?.name || 'Unknown'}
            projectName={activeProject.name}
+           projectTimeUnit={activeProject.timeUnit || 'days'}
            settings={settings}
            onUpdate={(updates) => updateSubtask(isEditingSubtask.mId, isEditingSubtask.sIdx!, updates)}
            onDelete={() => { deleteSubtask(isEditingSubtask.mId, isEditingSubtask.sIdx!); setIsEditingSubtask(null); }}

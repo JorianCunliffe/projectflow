@@ -70,13 +70,35 @@ export const EditProjectModal: React.FC<EditProjectModalProps> = ({
               {(settings.projectTypes || []).map(t => <option key={t} value={t}>{t}</option>)}
             </select>
           </div>
-          <div className="col-span-2">
+          <div className="col-span-1">
             <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Start Date</label>
             <input 
               type="date" 
               className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-5 py-3 outline-none focus:border-indigo-500 text-slate-900 font-bold shadow-sm transition-all"
               value={new Date(editedProject.startDate).toISOString().split('T')[0]}
               onChange={(e) => setEditedProject({ ...editedProject, startDate: new Date(e.target.value).getTime() })}
+            />
+          </div>
+          <div className="col-span-1">
+            <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Estimates Time Unit</label>
+            <select 
+              className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-5 py-3 outline-none focus:border-indigo-500 text-slate-900 font-bold shadow-sm transition-all"
+              value={editedProject.timeUnit || 'days'}
+              onChange={(e) => setEditedProject({ ...editedProject, timeUnit: e.target.value as any })}
+            >
+              <option value="hours">Hours</option>
+              <option value="days">Days</option>
+              <option value="weeks">Weeks</option>
+            </select>
+          </div>
+          <div className="col-span-2">
+            <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Time Buffer ({editedProject.timeUnit || 'days'})</label>
+            <input 
+              type="number" 
+              className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-5 py-3 outline-none focus:border-indigo-500 text-slate-900 font-bold shadow-sm transition-all"
+              value={editedProject.timeBuffer || ''}
+              onChange={(e) => setEditedProject({ ...editedProject, timeBuffer: parseFloat(e.target.value) || 0 })}
+              placeholder="0"
             />
           </div>
           <div className="col-span-2 flex items-center gap-3 bg-amber-50 p-4 rounded-2xl border border-amber-100">

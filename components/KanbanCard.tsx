@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { User, AlertTriangle, Clock, Calendar, Trash2, Mail, Loader2, Check } from 'lucide-react';
+import { User, AlertTriangle, Clock, Calendar, Trash2, Mail, Loader2, Check, Video, Mic } from 'lucide-react';
 import { Subtask, AppSettings } from '../types';
 import { getStatusBorderColor } from '../constants';
 import { sendTaskEmail } from '../lib/emailUtils';
@@ -12,6 +12,7 @@ interface KanbanCardProps {
   milestoneId: string;
   subtaskIndex: number;
   settings: AppSettings;
+  projectTimeUnit: string;
   onClick?: () => void;
   onDelete?: () => void;
 }
@@ -24,6 +25,7 @@ export const KanbanCard: React.FC<KanbanCardProps> = ({
   milestoneId,
   subtaskIndex,
   settings,
+  projectTimeUnit,
   onClick,
   onDelete
 }) => {
@@ -131,6 +133,11 @@ export const KanbanCard: React.FC<KanbanCardProps> = ({
             <Calendar size={8} /> TODAY
           </span>
         )}
+        {task.recordingUrl && (
+          <span className="flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-slate-100 border border-slate-200 text-slate-600 shrink-0" title="Recording Attached">
+            {task.recordingType === 'video' ? <Video size={8} /> : <Mic size={8} />}
+          </span>
+        )}
       </div>
       
       {/* Task Name - Smaller on mobile */}
@@ -170,9 +177,9 @@ export const KanbanCard: React.FC<KanbanCardProps> = ({
         {/* Meta Info Row */}
         <div className="flex items-center gap-1 flex-wrap">
             {(task.estimatedTime && task.estimatedTime > 0) && (
-                <div className="flex items-center gap-0.5 text-[8px] md:text-[10px] font-bold text-slate-400 bg-slate-50 px-1 py-0.5 rounded border border-slate-100 hidden md:flex" title={`Est: ${task.estimatedTime} ${task.timeUnit}`}>
+                <div className="flex items-center gap-0.5 text-[8px] md:text-[10px] font-bold text-slate-400 bg-slate-50 px-1 py-0.5 rounded border border-slate-100 hidden md:flex" title={`Est: ${task.estimatedTime} ${projectTimeUnit}`}>
                     <Clock size={8} className="md:w-[10px] md:h-[10px]" />
-                    <span>{task.estimatedTime}{task.timeUnit?.[0]}</span>
+                    <span>{task.estimatedTime}{projectTimeUnit?.[0] || 'd'}</span>
                 </div>
             )}
             

@@ -44,10 +44,13 @@ export interface Subtask {
   
   // Extended Metadata
   estimatedTime?: number;
+  actualTime?: number;
   timeUnit?: 'hours' | 'days' | 'weeks';
   dueDate?: number; // timestamp
   isImportant?: boolean;
   isToday?: boolean;
+  recordingUrl?: string;
+  recordingType?: 'video' | 'audio';
 }
 
 export interface Milestone {
@@ -74,6 +77,8 @@ export interface Project {
   company: string;
   type: string;
   startDate: number; // timestamp
+  timeUnit?: 'hours' | 'days' | 'weeks';
+  timeBuffer?: number; // total allocated buffer in project timeUnit
   milestones: Milestone[];
   markers?: TimelineMarker[];
   createdAt: number;
