@@ -14,8 +14,14 @@ export const ReportingView: React.FC<ReportingViewProps> = ({ projects, settings
   const [filterProject, setFilterProject] = useState<string>('ALL');
   const [filterMember, setFilterMember] = useState<string>('ALL');
   const [filterStatus, setFilterStatus] = useState<string>('ALL');
-  const [startDate, setStartDate] = useState<string>('');
-  const [endDate, setEndDate] = useState<string>('');
+  const [startDate, setStartDate] = useState<string>(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 7);
+    return d.toISOString().split('T')[0];
+  });
+  const [endDate, setEndDate] = useState<string>(() => {
+    return new Date().toISOString().split('T')[0];
+  });
 
   // Flatten all tasks from non-archived projects
   const allTasks = useMemo(() => {
@@ -226,8 +232,10 @@ export const ReportingView: React.FC<ReportingViewProps> = ({ projects, settings
               setFilterProject('ALL');
               setFilterMember('ALL');
               setFilterStatus('ALL');
-              setStartDate('');
-              setEndDate('');
+              const d = new Date();
+              setEndDate(d.toISOString().split('T')[0]);
+              d.setDate(d.getDate() - 7);
+              setStartDate(d.toISOString().split('T')[0]);
             }}
             className="px-4 py-2 hover:bg-slate-100 rounded-xl text-xs font-bold text-slate-500 transition-colors uppercase tracking-wider"
           >
