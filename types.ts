@@ -38,9 +38,17 @@ export interface Subtask {
   role?: string;
   description: string;
   notes: string;
+  commentHistory?: { text: string; status: string; timestamp: number }[];
   status: string;
   link?: string; // optional external resource link
   completedAt?: number; // timestamp when status became 'Complete'
+  
+  // RACI & Approvals
+  accountable?: string;
+  consulted?: string[];
+  informed?: string[];
+  requiresApproval?: boolean;
+  approvalStatus?: 'pending' | 'approved' | 'rejected';
   
   // Extended Metadata
   estimatedTime?: number;
@@ -92,10 +100,29 @@ export interface Project {
   profit?: number;
 }
 
+export interface ActivityLog {
+  id: string;
+  projectId: string;
+  taskId: string;
+  taskName: string;
+  action: 'created' | 'updated' | 'deleted';
+  userId: string;
+  timestamp: number;
+  details?: string;
+  // To allow filtering by RACI
+  raci?: {
+    responsible?: string;
+    accountable?: string;
+    consulted?: string[];
+    informed?: string[];
+  };
+}
+
 export interface ScratchTask {
   id: string;
   name: string;
   projectId?: string;
+  createdBy?: string;
   createdAt: number;
 }
 

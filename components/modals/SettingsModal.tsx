@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Settings, X, Plus, Tags, Building, User, CheckCircle2, Type as LucideType, Download, Upload, AlertTriangle, Mail, Phone, Briefcase, RefreshCw } from 'lucide-react';
+import { Settings, X, Plus, Tags, Building, User, CheckCircle2, Type as LucideType, Download, Upload, AlertTriangle, Mail, Phone, Briefcase, RefreshCw, Cloud, CloudOff } from 'lucide-react';
 import { AppSettings, TeamMemberDetails } from '../../types';
 
 interface SettingsModalProps {
@@ -10,6 +10,10 @@ interface SettingsModalProps {
   onExportBackup: () => void;
   onImportBackup: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onBulkReplaceNameGlobal: (oldName: string, newName: string) => void;
+  currentOrgId: string;
+  isCloudConfigured: boolean;
+  cloudStatus: 'disconnected' | 'connected' | 'syncing' | 'error';
+  onOpenCloudSetup: () => void;
 }
 
 const TeamMemberSection: React.FC<{ 
@@ -205,7 +209,7 @@ const SettingsSection: React.FC<{
 };
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ 
-  isOpen, onClose, settings, onUpdateSettings, onExportBackup, onImportBackup, onBulkReplaceNameGlobal
+  isOpen, onClose, settings, onUpdateSettings, onExportBackup, onImportBackup, onBulkReplaceNameGlobal, currentOrgId, isCloudConfigured, cloudStatus, onOpenCloudSetup
 }) => {
   const [replaceOldName, setReplaceOldName] = useState('');
   const [replaceNewName, setReplaceNewName] = useState('');
@@ -287,6 +291,34 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </button>
                 </div>
               </div>
+            </div>
+          </div>
+
+          <div className="border-t border-slate-100 pt-10 mb-16">
+            <h4 className="text-slate-800 font-black text-lg mb-6 flex items-center gap-3"><Cloud size={24} className="text-indigo-600" /> Cloud & Organization</h4>
+            <div className="bg-slate-50 rounded-3xl p-8 border border-slate-200 flex flex-col md:flex-row gap-8 items-center justify-between">
+               <div>
+                  <p className="text-slate-700 font-bold mb-1">Organization ID</p>
+                  <p className="text-sm text-slate-500 font-medium md:max-w-md">Your current organization ID is <span className="font-mono text-indigo-600 font-bold">{currentOrgId}</span>. All cloud data is scoped to this organization.</p>
+               </div>
+               
+               {isCloudConfigured ? (
+                 <button 
+                   onClick={() => { onClose(); onOpenCloudSetup(); }}
+                   className={`flex items-center gap-2 px-6 py-3 rounded-xl font-bold transition-all shadow-sm ${
+                     cloudStatus === 'connected' ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200' :
+                     cloudStatus === 'syncing' ? 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200' :
+                     'bg-red-100 text-red-700 hover:bg-red-200'
+                   }`}
+                 >
+                   {cloudStatus === 'syncing' ? <RefreshCw size={18} className="animate-spin" /> : <Cloud size={18} />}
+                   {cloudStatus === 'syncing' ? 'CLOUD SYNCING...' : 'CLOUD SETTINGS'}
+                 </button>
+               ) : (
+                 <button onClick={() => { onClose(); onOpenCloudSetup(); }} className="flex items-center gap-2 px-6 py-3 rounded-xl font-bold bg-amber-100 text-amber-700 hover:bg-amber-200 transition-all shadow-sm">
+                   <CloudOff size={18} /> LOCAL (SETUP CLOUD)
+                 </button>
+               )}
             </div>
           </div>
 

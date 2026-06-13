@@ -81,7 +81,7 @@ interface EditTaskModalProps {
 export const EditTaskModal: React.FC<EditTaskModalProps> = ({ 
   isOpen, onClose, task, milestoneName, projectName, settings, onUpdate, onDelete, children, projectTimeUnit 
 }) => {
-  if (!isOpen) return null;
+  if (!isOpen || !task) return null;
 
   // Helper to format timestamp to YYYY-MM-DD for input[type="date"]
   const dateToInput = (ts?: number) => {
@@ -128,7 +128,7 @@ export const EditTaskModal: React.FC<EditTaskModalProps> = ({
               <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Task Name</label>
               <input 
                 className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-900 font-bold outline-none focus:ring-2 focus:ring-indigo-500"
-                value={task.name}
+                value={task.name || ''}
                 onChange={(e) => onUpdate({ name: e.target.value })}
               />
             </div>
@@ -144,10 +144,12 @@ export const EditTaskModal: React.FC<EditTaskModalProps> = ({
           {/* Main Attributes */}
           <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Assigned To</label>
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 flex justify-between">
+                  <span>Assigned To (Responsible)</span>
+                </label>
                 <select 
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-900 font-medium outline-none focus:ring-2 focus:ring-indigo-500"
-                  value={task.assignedTo}
+                  value={task.assignedTo || ''}
                   onChange={(e) => onUpdate({ assignedTo: e.target.value })}
                 >
                   <option value="">Unassigned</option>
@@ -196,15 +198,71 @@ export const EditTaskModal: React.FC<EditTaskModalProps> = ({
           </div>
 
           <div className="grid grid-cols-1 gap-4">
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Accountable</label>
+                <select 
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-900 font-medium outline-none focus:ring-2 focus:ring-indigo-500 mb-4"
+                  value={task.accountable || ''}
+                  onChange={(e) => onUpdate({ accountable: e.target.value || undefined, approvalStatus: e.target.value ? task.approvalStatus || 'pending' : undefined })}
+                >
+                  <option value="">None</option>
+                  {(settings.people || []).map(person => <option key={person} value={person}>{person}</option>)}
+                </select>
+              </div>
+              <div>
+                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Consulted</label>
+                 <select 
+                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-900 font-medium outline-none focus:ring-2 focus:ring-indigo-500 h-24"
+                   multiple
+                   value={task.consulted || []}
+                   onChange={(e) => {
+                     const vals = Array.from(e.target.selectedOptions).map(opt => (opt as HTMLOptionElement).value);
+                     onUpdate({ consulted: vals.length > 0 ? vals : undefined });
+                   }}
+                 >
+                   {(settings.people || []).map(person => <option key={person} value={person}>{person}</option>)}
+                 </select>
+              </div>
+              <div>
+                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Informed</label>
+                 <select 
+                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-900 font-medium outline-none focus:ring-2 focus:ring-indigo-500 h-24"
+                   multiple
+                   value={task.informed || []}
+                   onChange={(e) => {
+                     const vals = Array.from(e.target.selectedOptions).map(opt => (opt as HTMLOptionElement).value);
+                     onUpdate({ informed: vals.length > 0 ? vals : undefined });
+                   }}
+                 >
+                   {(settings.people || []).map(person => <option key={person} value={person}>{person}</option>)}
+                 </select>
+              </div>
+            </div>
+
             <div>
-              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Status</label>
-              <select 
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-900 font-medium outline-none focus:ring-2 focus:ring-indigo-500"
-                value={task.status}
-                onChange={(e) => onUpdate({ status: e.target.value })}
-              >
-                {(settings.statuses || []).map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
+              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 flex justify-between">
+                <span>Status</span>
+                {task.accountable && task.status === 'Complete' && task.approvalStatus === 'pending' && <span className="text-amber-500">Pending Approval</span>}
+                {task.accountable && task.status === 'Complete' && task.approvalStatus === 'approved' && <span className="text-emerald-500 flex items-center gap-1"><Check size={10} /> Approved</span>}
+              </label>
+              <div className="flex gap-2">
+                <select 
+                  className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-slate-900 font-medium outline-none focus:ring-2 focus:ring-indigo-500"
+                  value={task.status || ''}
+                  onChange={(e) => onUpdate({ status: e.target.value })}
+                >
+                  {(settings.statuses || []).map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+                {task.accountable && task.status === 'Complete' && task.approvalStatus !== 'approved' && (
+                  <button 
+                    onClick={() => onUpdate({ approvalStatus: 'approved' })}
+                    className="bg-emerald-600 text-white font-bold px-4 rounded-xl hover:bg-emerald-700 transition"
+                  >
+                    Approve
+                  </button>
+                )}
+              </div>
             </div>
             
             <div className="flex items-center gap-6 mt-1">
@@ -312,8 +370,29 @@ export const EditTaskModal: React.FC<EditTaskModalProps> = ({
             <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Description</label>
             <textarea 
               className="w-full h-24 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
-              value={task.description}
+              value={task.description || ''}
               onChange={(e) => onUpdate({ description: e.target.value })}
+            />
+          </div>
+
+          <div>
+            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Comments & Notes</label>
+            <div className="space-y-2 mb-2">
+              {(task.commentHistory || []).map((ch, idx) => (
+                <div key={idx} className="bg-slate-100 rounded-xl p-3 border border-slate-200 opacity-70">
+                  <div className="flex justify-between items-center mb-1">
+                     <span className="text-[10px] font-bold text-slate-500 uppercase">{new Date(ch.timestamp).toLocaleString()}</span>
+                     <span className="text-[10px] font-bold text-indigo-500 uppercase px-2 py-0.5 bg-indigo-50 rounded-full">{ch.status}</span>
+                  </div>
+                  <p className="text-sm text-slate-600 whitespace-pre-wrap">{ch.text}</p>
+                </div>
+              ))}
+            </div>
+            <textarea 
+              className="w-full h-24 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+              placeholder="Add new comments or notes here..."
+              value={task.notes || ''}
+              onChange={(e) => onUpdate({ notes: e.target.value })}
             />
           </div>
           

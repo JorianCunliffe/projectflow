@@ -6,7 +6,8 @@ import {
   Subtask, 
   AppSettings,
   ScratchTask,
-  TimelineMarker as TimelineMarkerType
+  TimelineMarker as TimelineMarkerType,
+  ActivityLog
 } from './types';
 import { MilestoneNode } from './components/MilestoneNode';
 import { TimelineMarker } from './components/TimelineMarker';
@@ -42,16 +43,19 @@ import {
   AlertTriangle,
   Calendar,
   Clock,
-  Edit2
+  Edit2,
+  CheckCircle
 } from 'lucide-react';
 import { geminiService } from './services/geminiService';
-import { firebaseService } from './services/firebaseService';
+import { firebaseService, USE_MULTI_TENANT } from './services/firebaseService';
 
 // Imported Components
 import { Dashboard } from './components/Dashboard';
 import { ProjectSidebar } from './components/ProjectSidebar';
 import { KanbanBoard } from './components/KanbanBoard'; // New Import
 import { Scratchpad } from './components/Scratchpad';
+import { FeedView } from './components/FeedView';
+import { ApprovalsView } from './components/ApprovalsView';
 import { SettingsModal } from './components/modals/SettingsModal';
 import { CloudSetupModal } from './components/modals/CloudSetupModal';
 import { CreateProjectModal } from './components/modals/CreateProjectModal';
@@ -148,6 +152,43 @@ export const getMilestoneDurationInDays = (milestone: Milestone, project: Projec
 };
 
 export const App: React.FC = () => {
+  const [currentUser, setCurrentUser] = useState<any>(firebaseService.getCurrentUser());
+  const [currentOrgId, setCurrentOrgId] = useState<string | null>(firebaseService.getCurrentOrgId());
+  
+  useEffect(() => {
+    const handleAuthChange = () => {
+      setCurrentUser(firebaseService.getCurrentUser());
+      setCurrentOrgId(firebaseService.getCurrentOrgId());
+    };
+    window.addEventListener('firebase-auth-changed', handleAuthChange);
+    return () => window.removeEventListener('firebase-auth-changed', handleAuthChange);
+  }, []);
+
+  // Handle Invite Links
+  useEffect(() => {
+    const handleInvite = async () => {
+      if (!USE_MULTI_TENANT) return;
+      const params = new URLSearchParams(window.location.search);
+      const token = params.get('token');
+      if (token && currentUser) {
+        const success = await firebaseService.consumeInviteToken(token);
+        if (success) {
+          alert('Successfully joined organization!');
+          // Remove token from URL
+          const newUrl = new URL(window.location.href);
+          newUrl.searchParams.delete('token');
+          window.history.replaceState({}, document.title, newUrl.toString());
+        } else {
+          alert('Invalid or expired invite link.');
+          const newUrl = new URL(window.location.href);
+          newUrl.searchParams.delete('token');
+          window.history.replaceState({}, document.title, newUrl.toString());
+        }
+      }
+    };
+    handleInvite();
+  }, [currentUser]);
+
   const [projects, setProjects] = useState<Project[]>([]);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
@@ -157,9 +198,12 @@ export const App: React.FC = () => {
   // Kanban State
   const [isKanbanMode, setIsKanbanMode] = useState(false);
   const [isScratchMode, setIsScratchMode] = useState(false);
+  const [isFeedMode, setIsFeedMode] = useState(false);
+  const [isApprovalsMode, setIsApprovalsMode] = useState(false);
   const [kanbanGrouping, setKanbanGrouping] = useState<'project' | 'member'>('project');
 
   const [scratchTasks, setScratchTasks] = useState<ScratchTask[]>([]);
+  const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
   const [kanbanFilterProject, setKanbanFilterProject] = useState<string>('ALL');
   const [kanbanFilterMember, setKanbanFilterMember] = useState<string>('ALL');
   const [kanbanFilterRole, setKanbanFilterRole] = useState<string>('ALL');
@@ -193,11 +237,24 @@ export const App: React.FC = () => {
   // Cloud Sync State
   const [cloudStatus, setCloudStatus] = useState<'disconnected' | 'syncing' | 'connected' | 'error'>('disconnected');
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [isRegistering, setIsRegistering] = useState(false);
   const [isDataLoaded, setIsDataLoaded] = useState(false); 
   
+  const logActivity = (projectId: string, taskId: string, taskName: string, action: 'created'|'updated'|'deleted', details?: string, raci?: ActivityLog['raci']) => {
+    setActivityLogs(prev => {
+      const newLog: ActivityLog = {
+        id: Math.random().toString(36).substr(2, 9),
+        projectId, taskId, taskName, action, details, raci, userId: currentUser?.email || currentUser?.uid || 'unknown', timestamp: Date.now()
+      };
+      return [newLog, ...prev];
+    });
+  };
+
   // Safety Locks
   const isRemoteUpdate = useRef(false);
   const isDbInitialized = useRef(false); // CRITICAL: Prevents overwriting DB with empty local state on load
+  const localUpdatedAt = useRef(0);
 
   // Mobile Detection
   useEffect(() => {
@@ -270,6 +327,9 @@ export const App: React.FC = () => {
           if (parsed.scratchTasks && Array.isArray(parsed.scratchTasks)) {
             setScratchTasks(parsed.scratchTasks);
           }
+          if (parsed.activityLogs && Array.isArray(parsed.activityLogs)) {
+            setActivityLogs(parsed.activityLogs);
+          }
         } catch (e) {
           console.error("Failed to load local state", e);
         }
@@ -287,6 +347,11 @@ export const App: React.FC = () => {
       isDbInitialized.current = true; 
 
       if (data) {
+        // Prevent echo loop from Firebase triggering instantly after our writes
+        if (data.lastUpdated && Date.now() - localUpdatedAt.current < 2000) {
+           return;
+        }
+
         localStorage.setItem(BACKUP_KEY, JSON.stringify(data));
         isRemoteUpdate.current = true;
         
@@ -313,6 +378,11 @@ export const App: React.FC = () => {
         } else {
           setScratchTasks([]);
         }
+        if (data.activityLogs && Array.isArray(data.activityLogs)) {
+          setActivityLogs(data.activityLogs);
+        } else {
+          setActivityLogs([]);
+        }
       } else {
         isRemoteUpdate.current = true;
         setProjects([]);
@@ -326,7 +396,7 @@ export const App: React.FC = () => {
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [currentOrgId, currentUser]);
 
   useEffect(() => {
     if (!isDataLoaded) return;
@@ -336,13 +406,15 @@ export const App: React.FC = () => {
       return;
     }
 
+    localUpdatedAt.current = Date.now();
+
     const saveData = async () => {
       if (firebaseService.isConfigured()) {
         if (cloudStatus === 'error') return; 
 
         setCloudStatus('syncing');
         try {
-          await firebaseService.save({ projects, settings, scratchTasks });
+          await firebaseService.save({ projects, settings, scratchTasks, activityLogs });
           setCloudStatus('connected');
           setSyncError(null);
         } catch (err: any) {
@@ -350,13 +422,13 @@ export const App: React.FC = () => {
           setSyncError(err.message || "Failed to save to cloud");
         }
       } else {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({ projects, settings, scratchTasks }));
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ projects, settings, scratchTasks, activityLogs }));
       }
     };
 
     const timer = setTimeout(saveData, 800);
     return () => clearTimeout(timer);
-  }, [projects, settings, scratchTasks, isDataLoaded, cloudStatus]);
+  }, [projects, settings, scratchTasks, activityLogs]);
 
   // Handle Deep Linking (Magic Links from Email)
   useEffect(() => {
@@ -1183,18 +1255,69 @@ export const App: React.FC = () => {
   const handleAddSubtask = (mId: string) => {
       const taskIdNum = settings.nextTaskId || 1;
       setSettings(prev => ({ ...prev, nextTaskId: taskIdNum + 1 }));
-      setProjects(prev => prev.map(p => p.id === selectedProjectId ? { ...p, updatedAt: Date.now(), milestones: p.milestones.map(m => m.id === mId ? { ...m, subtasks: [...(m.subtasks || []), { id: `s-${Date.now()}`, displayId: `T-${taskIdNum}`, name: 'New Task', description: '', assignedTo: '', notes: '', status: 'Not started' }] } : m) } : p));
+      const newId = `s-${Date.now()}`;
+      setProjects(prev => prev.map(p => p.id === selectedProjectId ? { ...p, updatedAt: Date.now(), milestones: p.milestones.map(m => m.id === mId ? { ...m, subtasks: [...(m.subtasks || []), { id: newId, displayId: `T-${taskIdNum}`, name: 'New Task', description: '', assignedTo: '', notes: '', status: 'Not started' }] } : m) } : p));
   };
   const updateSubtask = (mId: string, sIdx: number, updates: Partial<Subtask>) => {
+      const p = projects.find(pr => pr.id === selectedProjectId);
+      const s = p?.milestones.find(mi => mi.id === mId)?.subtasks[sIdx];
+      
+      let finalUpdates = { ...updates };
+      
+      if (p && s) {
+          let details = 'Task updated';
+          let isSignificantChange = false;
+          
+          if (finalUpdates.status && finalUpdates.status !== s.status) {
+              details = `Status changed to ${finalUpdates.status}`;
+              if (finalUpdates.status === 'Complete' && s.accountable) {
+                 if (finalUpdates.approvalStatus === 'pending') {
+                   details = `Completed (Pending approval by ${s.accountable})`;
+                 } else if (finalUpdates.approvalStatus === 'approved') {
+                   details = `Completed (Approved by ${s.accountable})`;
+                 }
+              }
+              isSignificantChange = true;
+              
+              if (s.notes && s.notes.trim()) {
+                  finalUpdates.commentHistory = [
+                      ...(s.commentHistory || []),
+                      { text: s.notes, status: s.status, timestamp: Date.now() }
+                  ];
+                  finalUpdates.notes = '';
+              }
+          }
+
+          if (finalUpdates.approvalStatus && finalUpdates.approvalStatus !== s.approvalStatus) {
+              // Only log approval status change if moving to approved/rejected, OR if it's set to pending on a Complete task
+              if (finalUpdates.approvalStatus !== 'pending' || (finalUpdates.status === 'Complete' || s.status === 'Complete')) {
+                  details = `Approval status changed to ${finalUpdates.approvalStatus}`;
+                  isSignificantChange = true;
+              }
+          }
+
+          if (isSignificantChange) {
+              logActivity(p.id, s.id, finalUpdates.name || s.name || 'New Task', 'updated', details, {
+                 responsible: finalUpdates.assignedTo !== undefined ? finalUpdates.assignedTo : s.assignedTo,
+                 accountable: finalUpdates.accountable !== undefined ? finalUpdates.accountable : s.accountable,
+                 consulted: finalUpdates.consulted !== undefined ? finalUpdates.consulted : s.consulted,
+                 informed: finalUpdates.informed !== undefined ? finalUpdates.informed : s.informed,
+              });
+          }
+      }
       setProjects(prev => prev.map(p => p.id === selectedProjectId ? { 
           ...p, updatedAt: Date.now(), 
           milestones: p.milestones.map(m => m.id === mId ? { 
               ...m, 
-              subtasks: m.subtasks.map((s, idx) => idx === sIdx ? { ...s, ...updates, completedAt: (updates.status === 'Complete' && s.status !== 'Complete') ? Date.now() : (updates.status !== 'Complete' && updates.status) ? undefined : s.completedAt } : s)
+              subtasks: m.subtasks.map((st, idx) => idx === sIdx ? { ...st, ...finalUpdates, completedAt: (finalUpdates.status === 'Complete' && st.status !== 'Complete') ? Date.now() : (finalUpdates.status !== 'Complete' && finalUpdates.status) ? undefined : st.completedAt } : st)
           } : m) 
       } : p));
   };
   const deleteSubtask = (mId: string, sIdx: number) => {
+      const p = projects.find(pr => pr.id === selectedProjectId);
+      const s = p?.milestones.find(mi => mi.id === mId)?.subtasks[sIdx];
+      if (p && s) {
+      }
       setProjects(prev => prev.map(p => p.id === selectedProjectId ? { ...p, milestones: p.milestones.map(m => m.id === mId ? { ...m, subtasks: m.subtasks.filter((_, i) => i !== sIdx) } : m) } : p));
   };
 
@@ -1218,7 +1341,35 @@ export const App: React.FC = () => {
               if (isNowComplete && !wasComplete) completedAt = Date.now();
               if (!isNowComplete && wasComplete) completedAt = undefined;
 
-              return { ...s, status: newStatus, completedAt };
+              let detailsText = `Status changed to ${newStatus}`;
+              if (newStatus === 'Complete' && s.accountable) {
+                if (s.approvalStatus === 'pending' || !s.approvalStatus) {
+                  detailsText = `Completed (Pending approval by ${s.accountable})`;
+                } else if (s.approvalStatus === 'approved') {
+                  detailsText = `Completed (Approved by ${s.accountable})`;
+                }
+              }
+
+              if (s.status !== newStatus) {
+                 logActivity(p.id, s.id, s.name || 'New Task', 'updated', detailsText, {
+                    responsible: s.assignedTo,
+                    accountable: s.accountable,
+                    consulted: s.consulted,
+                    informed: s.informed,
+                 });
+              }
+
+              let updatedS = { ...s, status: newStatus, completedAt };
+
+              if (s.notes && s.notes.trim() && s.status !== newStatus) {
+                updatedS.commentHistory = [
+                  ...(s.commentHistory || []),
+                  { text: s.notes, status: s.status, timestamp: Date.now() }
+                ];
+                updatedS.notes = '';
+              }
+
+              return updatedS;
             })
           };
         })
@@ -1230,6 +1381,7 @@ export const App: React.FC = () => {
   const handleKanbanCreateTask = (pId: string, mId: string, task: Partial<Subtask>) => {
      const taskIdNum = settings.nextTaskId || 1;
      setSettings(prev => ({ ...prev, nextTaskId: taskIdNum + 1 }));
+     const newId = `s-${Date.now()}`;
      setProjects(prev => prev.map(p => {
        if (p.id !== pId) return p;
        return {
@@ -1240,7 +1392,7 @@ export const App: React.FC = () => {
            return {
              ...m,
              subtasks: [...(m.subtasks || []), {
-               id: `s-${Date.now()}`,
+               id: newId,
                displayId: `T-${taskIdNum}`,
                name: task.name || 'New Task',
                description: task.description || '',
@@ -1326,6 +1478,157 @@ export const App: React.FC = () => {
        }
     }));
   };
+
+  // Auth & Multi-tenant UI
+  if (USE_MULTI_TENANT && firebaseService.isConfigured()) {
+    if (!currentUser) {
+      return (
+        <div className="h-screen w-screen flex flex-col items-center justify-center bg-slate-50 text-slate-900">
+          <div className="bg-white p-8 border border-slate-200 rounded shadow-md w-full max-w-md text-center">
+             <Layers className="w-12 h-12 text-indigo-600 mx-auto mb-4" />
+             <h2 className="text-2xl font-bold mb-2">Welcome to ProjectFlow</h2>
+             <p className="text-slate-600 mb-6">Sign in to manage your team's projects.</p>
+             
+             {authError && (
+               <div className="mb-4 p-3 bg-red-50 text-red-700 text-sm rounded border border-red-200 text-left">
+                 <strong>Authentication Error:</strong><br/>
+                 {authError}
+                 <p className="mt-2 text-xs">If you see an "unauthorized domain" error, make sure to add <code>{window.location.hostname}</code> to your Firebase console under Authentication &gt; Settings &gt; Authorized Domains.</p>
+               </div>
+             )}
+
+             <form onSubmit={async (e) => {
+               e.preventDefault();
+               const fd = new FormData(e.currentTarget);
+               const email = fd.get('email') as string;
+               const pass = fd.get('password') as string;
+               try {
+                 setAuthError(null);
+                 if (isRegistering) {
+                   await firebaseService.signupWithEmail(email, pass);
+                 } else {
+                   await firebaseService.loginWithEmail(email, pass);
+                 }
+               } catch (err: any) {
+                 setAuthError(err.message || "Failed to authenticate.");
+               }
+             }} className="mb-4 text-left">
+               <div className="mb-3">
+                 <label className="block text-sm font-medium mb-1">Email</label>
+                 <input type="email" name="email" required className="w-full border rounded p-2" />
+               </div>
+               <div className="mb-4">
+                 <label className="block text-sm font-medium mb-1">Password</label>
+                 <input type="password" name="password" required className="w-full border rounded p-2" />
+               </div>
+               <button type="submit" className="w-full bg-slate-800 text-white font-medium py-2 px-4 rounded hover:bg-slate-900 transition mb-2">
+                 {isRegistering ? "Register with Email" : "Sign in with Email"}
+               </button>
+               <div className="text-center text-sm">
+                 <button type="button" onClick={() => setIsRegistering(!isRegistering)} className="text-indigo-600 hover:underline">
+                   {isRegistering ? "Already have an account? Sign in" : "Need an account? Register"}
+                 </button>
+               </div>
+             </form>
+
+             <div className="relative flex py-4 items-center">
+                <div className="flex-grow border-t border-slate-300"></div>
+                <span className="flex-shrink-0 mx-4 text-slate-400 text-sm">Or</span>
+                <div className="flex-grow border-t border-slate-300"></div>
+             </div>
+
+             <div className="flex flex-col gap-2">
+               <button 
+                 onClick={async () => {
+                   try {
+                     setAuthError(null);
+                     await firebaseService.loginWithGoogle();
+                   } catch (e: any) {
+                     setAuthError(e.message || "Failed to login. See console.");
+                   }
+                 }}
+                 className="w-full bg-indigo-600 text-white font-medium py-2 px-4 rounded hover:bg-indigo-700 transition"
+               >
+                 Sign in with Google
+               </button>
+
+               <button 
+                 onClick={async () => {
+                   try {
+                     setAuthError(null);
+                     await firebaseService.loginAnonymously();
+                   } catch (e: any) {
+                     setAuthError(e.message || "Failed to login anonymously. See console.");
+                   }
+                 }}
+                 className="w-full bg-slate-100 text-slate-700 font-medium py-2 px-4 rounded border border-slate-300 hover:bg-slate-200 transition"
+               >
+                 Continue Anonymously
+               </button>
+             </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (!currentOrgId) {
+      return (
+        <div className="h-screen w-screen flex flex-col items-center justify-center bg-slate-50 text-slate-900">
+          <div className="bg-white p-8 border border-slate-200 rounded shadow-md w-full max-w-md">
+             <h2 className="text-2xl font-bold mb-6 text-center">Join an Organization</h2>
+             
+             <div className="mb-6">
+                <h3 className="font-semibold mb-2">Create New Organization</h3>
+                <form onSubmit={async (e) => {
+                  e.preventDefault();
+                  const fd = new FormData(e.currentTarget);
+                  const orgName = fd.get('orgName') as string;
+                  if (orgName) await firebaseService.createOrganization(orgName);
+                }}>
+                  <input type="text" name="orgName" placeholder="Organization Name (e.g. Acme Corp)" className="w-full border border-slate-300 rounded p-2 mb-2" required />
+                  <button type="submit" className="w-full bg-indigo-600 text-white font-medium py-2 px-4 rounded hover:bg-indigo-700 transition">Create Organization</button>
+                </form>
+             </div>
+
+             <div className="relative flex py-5 items-center">
+                <div className="flex-grow border-t border-slate-300"></div>
+                <span className="flex-shrink-0 mx-4 text-slate-400 text-sm">Or</span>
+                <div className="flex-grow border-t border-slate-300"></div>
+             </div>
+
+             <div className="mb-6">
+                <h3 className="font-semibold mb-2">Join Existing Organization</h3>
+                <form onSubmit={async (e) => {
+                  e.preventDefault();
+                  const fd = new FormData(e.currentTarget);
+                  const code = fd.get('orgCode') as string;
+                  if (code) await firebaseService.joinOrganization(code);
+                }}>
+                  <input type="text" name="orgCode" placeholder="Organization Code (e.g. org_12345)" className="w-full border border-slate-300 rounded p-2 mb-2" required />
+                  <button type="submit" className="w-full bg-slate-100 text-slate-800 font-medium py-2 px-4 rounded border border-slate-300 hover:bg-slate-200 transition">Join Organization</button>
+                </form>
+             </div>
+
+             <div className="mt-8 pt-6 border-t border-slate-200 text-center">
+                <p className="text-sm text-slate-600 mb-3">Were you using ProjectFlow before organizations?</p>
+                <button 
+                  onClick={async () => {
+                    setAuthError(null);
+                    const orgName = prompt("Enter a name for your new organization:", "Landmarx") || "Landmarx";
+                    const success = await firebaseService.migrateOldDataToOrganization(orgName);
+                    if (!success) {
+                      setAuthError("Failed to create org and migrate data.");
+                    }
+                  }}
+                  className="w-full bg-emerald-100 text-emerald-800 font-medium py-2 px-4 rounded border border-emerald-300 hover:bg-emerald-200 transition text-sm">
+                  Create new Organization & Migrate Data
+                </button>
+             </div>
+          </div>
+        </div>
+      );
+    }
+  }
 
   // Loading Screen
   if (!isDataLoaded && firebaseService.isConfigured()) {
@@ -1436,53 +1739,95 @@ export const App: React.FC = () => {
             <Layers size={24} />
           </div>
           <h1 className="text-xl font-bold text-slate-900 tracking-tight block">ProjectFlow</h1>
-          {firebaseService.isConfigured() ? (
-            <button 
-              onClick={() => setIsCloudSetupOpen(true)}
-              className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border transition-colors hover:bg-opacity-80 ${
-                cloudStatus === 'connected' ? 'bg-emerald-50 text-emerald-600 border-emerald-200' :
-                cloudStatus === 'syncing' ? 'bg-indigo-50 text-indigo-600 border-indigo-200' :
-                'bg-red-50 text-red-600 border-red-200'
-              }`}
-            >
-              {cloudStatus === 'syncing' ? <RefreshCw size={12} className="animate-spin" /> : <Cloud size={12} />}
-              {cloudStatus === 'syncing' ? 'SYNCING...' : 'CLOUD'}
-            </button>
-          ) : (
-             <button onClick={() => setIsCloudSetupOpen(true)} className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-600 border border-amber-200 hover:bg-amber-100 transition-colors">
-               <CloudOff size={12} /> LOCAL
-             </button>
-          )}
+          {USE_MULTI_TENANT && currentUser ? (
+            <div className="flex items-center gap-2 ml-4 px-3 py-1 bg-slate-100 rounded-full border border-slate-200">
+              <button 
+                onClick={async () => {
+                  const email = prompt("Enter email of the person to invite:");
+                  if (email) {
+                    const url = await firebaseService.createInviteResultUrl(email);
+                    if (url) {
+                      try {
+                        const response = await fetch('/api/send-email', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            to: email,
+                            subject: "You've been invited to ProjectFlow!",
+                            html: `<p>You have been invited to join an organization on ProjectFlow.</p><p><a href="${url}">Click here to accept the invitation</a></p><p>Alternatively, copy and paste this link: ${url}</p>`
+                          })
+                        });
+                        if (response.ok) {
+                          alert(`Invite sent successfully to ${email}!`);
+                        } else {
+                          const errData = await response.json();
+                          alert(`Error sending email: ${errData.error?.message || 'Unknown error'}. Here is your link to share manually:\n\n${url}`);
+                        }
+                      } catch (e: any) {
+                        alert(`Network error while sending email: ${e.message}. Here is your link to share manually:\n\n${url}`);
+                      }
+                    } else {
+                      alert("Failed to generate invite.");
+                    }
+                  }
+                }}
+                className="text-xs text-indigo-600 hover:text-indigo-800 font-bold transition-colors">
+                INVITE
+              </button>
+              <div className="w-px h-3 bg-slate-300 mx-1"></div>
+              <button onClick={() => firebaseService.logout()} className="text-xs text-slate-500 hover:text-red-600 font-bold transition-colors">
+                LOGOUT
+              </button>
+            </div>
+          ) : null}
         </div>
         
         {/* VIEW SWITCHER IN HEADER */}
         <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg">
           <button 
-            onClick={() => { setIsKanbanMode(false); setIsScratchMode(false); }}
+            onClick={() => { setIsKanbanMode(false); setIsScratchMode(false); setIsFeedMode(false); setIsApprovalsMode(false); }}
             className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-bold transition-all ${
-              !isKanbanMode && !isScratchMode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+              !isKanbanMode && !isScratchMode && !isFeedMode && !isApprovalsMode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
             }`}
           >
             {selectedProjectId ? <MapIcon size={16} /> : <Layout size={16} />}
-            <span className="hidden sm:inline">{selectedProjectId ? 'Project Map' : 'Dashboard'}</span>
+            <span className="hidden xl:inline">{selectedProjectId ? 'Project Map' : 'Dashboard'}</span>
           </button>
           <button 
-            onClick={() => { setIsKanbanMode(true); setIsScratchMode(false); }}
+            onClick={() => { setIsKanbanMode(true); setIsScratchMode(false); setIsFeedMode(false); setIsApprovalsMode(false); }}
             className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-bold transition-all ${
-              isKanbanMode && !isScratchMode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+              isKanbanMode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
             }`}
           >
             <Columns size={16} />
-            <span className="hidden sm:inline">Kanban</span>
+            <span className="hidden xl:inline">Kanban</span>
           </button>
           <button 
-            onClick={() => { setIsScratchMode(true); setIsKanbanMode(false); }}
+            onClick={() => { setIsScratchMode(true); setIsKanbanMode(false); setIsFeedMode(false); setIsApprovalsMode(false); }}
             className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-bold transition-all ${
               isScratchMode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
             }`}
           >
             <Edit2 size={16} />
-            <span className="hidden sm:inline">Scratch</span>
+            <span className="hidden xl:inline">Scratch</span>
+          </button>
+          <button 
+            onClick={() => { setIsFeedMode(true); setIsScratchMode(false); setIsKanbanMode(false); setIsApprovalsMode(false); }}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-bold transition-all ${
+              isFeedMode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            <Activity size={16} />
+            <span className="hidden xl:inline">Feed</span>
+          </button>
+          <button 
+            onClick={() => { setIsApprovalsMode(true); setIsFeedMode(false); setIsScratchMode(false); setIsKanbanMode(false); }}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-bold transition-all ${
+              isApprovalsMode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            <CheckCircle size={16} />
+            <span className="hidden xl:inline">Approvals</span>
           </button>
         </div>
 
@@ -1607,8 +1952,16 @@ export const App: React.FC = () => {
         {/* MAIN VIEW CONTENT */}
         {isScratchMode ? (
           <Scratchpad 
-            scratchTasks={scratchTasks}
-            onUpdateScratchTasks={setScratchTasks}
+            scratchTasks={scratchTasks.filter(t => t.createdBy === currentUser?.uid || t.createdBy === currentUser?.email || !t.createdBy)}
+            onUpdateScratchTasks={(newFiltered) => {
+              setScratchTasks(prev => {
+                const myIds = new Set(newFiltered.map(t => t.id));
+                // Add currentUser property to newly created tasks
+                const updatedFiltered = newFiltered.map(t => t.createdBy ? t : { ...t, createdBy: currentUser?.uid || currentUser?.email });
+                const others = prev.filter(t => (t.createdBy && t.createdBy !== currentUser?.uid && t.createdBy !== currentUser?.email));
+                return [...others, ...updatedFiltered];
+              });
+            }}
             projects={activeProjects}
             settings={settings}
             onPromoteTask={(scratchTaskId, projectId, milestoneId, subtask) => {
@@ -1650,6 +2003,36 @@ export const App: React.FC = () => {
             onStatusChange={handleKanbanStatusChange}
             onDeleteTask={handleKanbanDeleteTask}
             onCreateTask={handleKanbanCreateTask}
+          />
+        ) : isFeedMode ? (
+          <FeedView 
+            activityLogs={activityLogs} 
+            projects={activeProjects} 
+            currentUser={currentUser} 
+            settings={settings}
+            onTaskClick={(projectId, taskId) => {
+              const project = projects.find(p => p.id === projectId);
+              if (project) {
+                for (const milestone of project.milestones) {
+                  const sIdx = milestone.subtasks?.findIndex(s => s.id === taskId);
+                  if (sIdx !== undefined && sIdx !== -1) {
+                    setSelectedProjectId(projectId);
+                    setIsEditingSubtask({ mId: milestone.id, sIdx });
+                    return;
+                  }
+                }
+              }
+            }}
+          />
+        ) : isApprovalsMode ? (
+          <ApprovalsView 
+            projects={activeProjects} 
+            currentUser={currentUser} 
+            settings={settings}
+            onEditTask={(projectId, milestoneId, subtaskIndex) => {
+              setSelectedProjectId(projectId);
+              setIsEditingSubtask({ mId: milestoneId, sIdx: subtaskIndex });
+            }}
           />
         ) : (
           /* STANDARD VIEW (Dashboard or Project Map) */
@@ -1943,6 +2326,10 @@ export const App: React.FC = () => {
         onExportBackup={handleExportBackup} 
         onImportBackup={handleImportBackup} 
         onBulkReplaceNameGlobal={handleBulkNameReplacementGlobal}
+        currentOrgId={currentOrgId}
+        isCloudConfigured={firebaseService.isConfigured()}
+        cloudStatus={cloudStatus}
+        onOpenCloudSetup={() => setIsCloudSetupOpen(true)}
       />
       <CloudSetupModal isOpen={isCloudSetupOpen} onClose={() => setIsCloudSetupOpen(false)} cloudStatus={cloudStatus} syncError={syncError} onDisconnect={handleDisconnectFirebase} onRestoreBackup={handleRestoreFromBackup} />
       <CreateProjectModal 
