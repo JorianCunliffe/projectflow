@@ -44,7 +44,8 @@ import {
   Calendar,
   Clock,
   Edit2,
-  CheckCircle
+  CheckCircle,
+  BarChart3
 } from 'lucide-react';
 import { geminiService } from './services/geminiService';
 import { firebaseService, USE_MULTI_TENANT } from './services/firebaseService';
@@ -56,6 +57,7 @@ import { KanbanBoard } from './components/KanbanBoard'; // New Import
 import { Scratchpad } from './components/Scratchpad';
 import { FeedView } from './components/FeedView';
 import { ApprovalsView } from './components/ApprovalsView';
+import { ReportingView } from './components/ReportingView';
 import { SettingsModal } from './components/modals/SettingsModal';
 import { CloudSetupModal } from './components/modals/CloudSetupModal';
 import { CreateProjectModal } from './components/modals/CreateProjectModal';
@@ -200,6 +202,7 @@ export const App: React.FC = () => {
   const [isScratchMode, setIsScratchMode] = useState(false);
   const [isFeedMode, setIsFeedMode] = useState(false);
   const [isApprovalsMode, setIsApprovalsMode] = useState(false);
+  const [isReportingMode, setIsReportingMode] = useState(false);
   const [kanbanGrouping, setKanbanGrouping] = useState<'project' | 'member'>('project');
 
   const [scratchTasks, setScratchTasks] = useState<ScratchTask[]>([]);
@@ -1785,16 +1788,16 @@ export const App: React.FC = () => {
         {/* VIEW SWITCHER IN HEADER */}
         <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg">
           <button 
-            onClick={() => { setIsKanbanMode(false); setIsScratchMode(false); setIsFeedMode(false); setIsApprovalsMode(false); }}
+            onClick={() => { setIsKanbanMode(false); setIsScratchMode(false); setIsFeedMode(false); setIsApprovalsMode(false); setIsReportingMode(false); }}
             className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-bold transition-all ${
-              !isKanbanMode && !isScratchMode && !isFeedMode && !isApprovalsMode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+              !isKanbanMode && !isScratchMode && !isFeedMode && !isApprovalsMode && !isReportingMode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
             }`}
           >
             {selectedProjectId ? <MapIcon size={16} /> : <Layout size={16} />}
             <span className="hidden xl:inline">{selectedProjectId ? 'Project Map' : 'Dashboard'}</span>
           </button>
           <button 
-            onClick={() => { setIsKanbanMode(true); setIsScratchMode(false); setIsFeedMode(false); setIsApprovalsMode(false); }}
+            onClick={() => { setIsKanbanMode(true); setIsScratchMode(false); setIsFeedMode(false); setIsApprovalsMode(false); setIsReportingMode(false); }}
             className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-bold transition-all ${
               isKanbanMode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
             }`}
@@ -1803,7 +1806,7 @@ export const App: React.FC = () => {
             <span className="hidden xl:inline">Kanban</span>
           </button>
           <button 
-            onClick={() => { setIsScratchMode(true); setIsKanbanMode(false); setIsFeedMode(false); setIsApprovalsMode(false); }}
+            onClick={() => { setIsScratchMode(true); setIsKanbanMode(false); setIsFeedMode(false); setIsApprovalsMode(false); setIsReportingMode(false); }}
             className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-bold transition-all ${
               isScratchMode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
             }`}
@@ -1812,7 +1815,7 @@ export const App: React.FC = () => {
             <span className="hidden xl:inline">Scratch</span>
           </button>
           <button 
-            onClick={() => { setIsFeedMode(true); setIsScratchMode(false); setIsKanbanMode(false); setIsApprovalsMode(false); }}
+            onClick={() => { setIsFeedMode(true); setIsScratchMode(false); setIsKanbanMode(false); setIsApprovalsMode(false); setIsReportingMode(false); }}
             className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-bold transition-all ${
               isFeedMode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
             }`}
@@ -1821,13 +1824,22 @@ export const App: React.FC = () => {
             <span className="hidden xl:inline">Feed</span>
           </button>
           <button 
-            onClick={() => { setIsApprovalsMode(true); setIsFeedMode(false); setIsScratchMode(false); setIsKanbanMode(false); }}
+            onClick={() => { setIsApprovalsMode(true); setIsFeedMode(false); setIsScratchMode(false); setIsKanbanMode(false); setIsReportingMode(false); }}
             className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-bold transition-all ${
               isApprovalsMode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
             }`}
           >
             <CheckCircle size={16} />
             <span className="hidden xl:inline">Approvals</span>
+          </button>
+          <button 
+            onClick={() => { setIsReportingMode(true); setIsApprovalsMode(false); setIsFeedMode(false); setIsScratchMode(false); setIsKanbanMode(false); }}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-bold transition-all ${
+              isReportingMode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            <BarChart3 size={16} />
+            <span className="hidden xl:inline">Reports</span>
           </button>
         </div>
 
@@ -2032,6 +2044,25 @@ export const App: React.FC = () => {
             onEditTask={(projectId, milestoneId, subtaskIndex) => {
               setSelectedProjectId(projectId);
               setIsEditingSubtask({ mId: milestoneId, sIdx: subtaskIndex });
+            }}
+          />
+        ) : isReportingMode ? (
+          <ReportingView 
+            projects={activeProjects} 
+            settings={settings}
+            activityLogs={activityLogs}
+            onTaskClick={(projectId, taskId) => {
+              const project = projects.find(p => p.id === projectId);
+              if (project) {
+                for (const milestone of project.milestones) {
+                  const sIdx = milestone.subtasks?.findIndex(s => s.id === taskId);
+                  if (sIdx !== undefined && sIdx !== -1) {
+                    setSelectedProjectId(projectId);
+                    setIsEditingSubtask({ mId: milestone.id, sIdx });
+                    return;
+                  }
+                }
+              }
             }}
           />
         ) : (
