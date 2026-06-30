@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { User, ChevronDown, Filter, RefreshCw, Building, Clock, CheckCircle2, Eye, PenSquare, Copy, X, Banknote } from 'lucide-react';
+import { User, ChevronDown, Filter, RefreshCw, Building, Clock, CheckCircle2, Eye, PenSquare, Copy, X, Banknote, Flame, Star } from 'lucide-react';
 import { Project, AppSettings } from '../types';
 import { getStatusBorderColor } from '../constants';
 
@@ -10,6 +10,7 @@ interface DashboardProps {
   onEditProject: (project: Project) => void;
   onDuplicateProject: (id: string) => void;
   onDeleteProject: (id: string) => void;
+  onUpdateProject?: (id: string, updates: Partial<Project>) => void;
   formatDate: (date: Date | number) => string;
 }
 
@@ -20,23 +21,32 @@ export const Dashboard: React.FC<DashboardProps> = ({
   onEditProject,
   onDuplicateProject,
   onDeleteProject,
+  onUpdateProject,
   formatDate
 }) => {
   const [filterType, setFilterType] = useState<string>('ALL');
   const [filterCompany, setFilterCompany] = useState<string>('ALL');
   const [filterAssignee, setFilterAssignee] = useState<string>('ALL');
+  const [filterFlag, setFilterFlag] = useState<string>('ALL');
 
   const filteredProjects = useMemo(() => {
-    return projects.filter(p => {
+    let filtered = projects.filter(p => {
       const matchesAssignee = filterAssignee === 'ALL' || p.milestones.some(m => {
         const tasks = Array.isArray(m.subtasks) ? m.subtasks : [];
         return tasks.some(s => s.assignedTo === filterAssignee);
       });
       const matchesType = filterType === 'ALL' || p.type === filterType;
       const matchesCompany = filterCompany === 'ALL' || p.company === filterCompany;
-      return matchesAssignee && matchesType && matchesCompany;
+      let matchesFlag = true;
+      if (filterFlag === 'URGENT') matchesFlag = !!p.isUrgent;
+      if (filterFlag === 'IMPORTANT') matchesFlag = !!p.isImportant;
+      if (filterFlag === 'BOTH') matchesFlag = !!p.isUrgent && !!p.isImportant;
+      
+      return matchesAssignee && matchesType && matchesCompany && matchesFlag;
     });
-  }, [projects, filterAssignee, filterType, filterCompany]);
+
+    return filtered.sort((a, b) => b.updatedAt - a.updatedAt);
+  }, [projects, filterAssignee, filterType, filterCompany, filterFlag]);
 
   return (
     <div className="flex-1 p-4 md:p-8 max-w-7xl mx-auto h-full overflow-y-auto">
@@ -57,6 +67,16 @@ export const Dashboard: React.FC<DashboardProps> = ({
           </div>
           <div className="flex items-center gap-2">
             <Filter size={18} className="text-slate-400" />
+            <select 
+              className="bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm"
+              value={filterFlag}
+              onChange={(e) => setFilterFlag(e.target.value)}
+            >
+              <option value="ALL">All Priorities</option>
+              <option value="URGENT">Urgent</option>
+              <option value="IMPORTANT">Important</option>
+              <option value="BOTH">Urgent & Important</option>
+            </select>
             <select 
               className="bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm"
               value={filterType}
@@ -108,12 +128,41 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 </div>
                 <div className="flex items-center gap-1.5 text-slate-500 text-sm">
                   <Building size={14} />
-                  <span>{p.company}</span>
+                  <span className="font-medium truncate">{p.company}</span>
+                  <span className="text-slate-300 mx-1 hidden sm:inline">•</span>
+                  <span className="hidden sm:inline-flex text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100">
+                    {p.type}
+                  </span>
+                </div>
+                {/* Mobile only badge */}
+                <div className="mt-1.5 sm:hidden">
+                  <span className="inline-flex text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100">
+                    {p.type}
+                  </span>
                 </div>
               </div>
-              <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100">
-                {p.type}
-              </span>
+              <div className="flex flex-col items-end gap-2 shrink-0">
+                <div className="flex items-center gap-2">
+                  {onUpdateProject && (
+                    <div className="flex items-center gap-1">
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); onUpdateProject(p.id, { isUrgent: !p.isUrgent }); }}
+                        className={`p-1.5 rounded-md transition-all ${p.isUrgent ? 'bg-orange-50 text-orange-600 opacity-100' : 'text-slate-300 opacity-0 group-hover:opacity-100 hover:text-orange-500 hover:bg-orange-50'}`}
+                        title={p.isUrgent ? "Mark Not Urgent" : "Mark Urgent"}
+                      >
+                        <Flame size={16} className={p.isUrgent ? 'fill-orange-600' : ''} />
+                      </button>
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); onUpdateProject(p.id, { isImportant: !p.isImportant }); }}
+                        className={`p-1.5 rounded-md transition-all ${p.isImportant ? 'bg-amber-50 text-amber-500 opacity-100' : 'text-slate-300 opacity-0 group-hover:opacity-100 hover:text-amber-500 hover:bg-amber-50'}`}
+                        title={p.isImportant ? "Mark Not Important" : "Mark Important"}
+                      >
+                        <Star size={16} className={p.isImportant ? 'fill-amber-500' : ''} />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
 
             <div className="flex items-center gap-2 text-[10px] text-slate-400 mb-4">

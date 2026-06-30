@@ -9,6 +9,7 @@ interface KanbanBoardProps {
   projects: Project[];
   settings: AppSettings;
   grouping: 'project' | 'member';
+  projectPriorityFilter?: string | null;
   memberFilter?: string | null;
   projectFilter?: string | null;
   roleFilter?: string | null;
@@ -36,6 +37,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
   projects,
   settings,
   grouping,
+  projectPriorityFilter,
   memberFilter,
   projectFilter,
   roleFilter,
@@ -62,6 +64,9 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
     const tasks: FlattenedTask[] = [];
     projects.forEach(p => {
       if (projectFilter && p.id !== projectFilter) return;
+      if (projectPriorityFilter === 'URGENT' && !p.isUrgent) return;
+      if (projectPriorityFilter === 'IMPORTANT' && !p.isImportant) return;
+      if (projectPriorityFilter === 'BOTH' && (!p.isUrgent || !p.isImportant)) return;
 
       p.milestones.forEach(m => {
         (m.subtasks || []).forEach((s, idx) => {
@@ -87,36 +92,40 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
       });
     });
     return tasks;
-  }, [projects, projectFilter, memberFilter, roleFilter, importantFilter, todayFilter, lateFilter]);
+  }, [projects, projectFilter, projectPriorityFilter, memberFilter, roleFilter, importantFilter, todayFilter, lateFilter]);
 
   // 2. Define Swimlanes (Rows)
   const swimlanes = useMemo(() => {
+    let lanes: { id: string, title: string, type: 'project' | 'member' }[] = [];
     if (grouping === 'project') {
-      // If we are filtering by project, we only have one swimlane (or none)
       if (projectFilter) {
         const p = projects.find(proj => proj.id === projectFilter);
-        return p ? [{ id: p.id, title: p.name, type: 'project' }] : [];
+        lanes = p ? [{ id: p.id, title: p.name, type: 'project' }] : [];
+      } else {
+        lanes = projects
+          .filter(p => {
+            if (projectPriorityFilter === 'URGENT' && !p.isUrgent) return false;
+            if (projectPriorityFilter === 'IMPORTANT' && !p.isImportant) return false;
+            if (projectPriorityFilter === 'BOTH' && (!p.isUrgent || !p.isImportant)) return false;
+            return true;
+          })
+          .map(p => ({ id: p.id, title: p.name, type: 'project' }));
       }
       
-      // Otherwise list all projects
-      return projects.map(p => ({ id: p.id, title: p.name, type: 'project' }));
-
+      // Filter out empty projects
+      lanes = lanes.filter(l => allTasks.some(t => t.projectId === l.id));
     } else {
       // Grouping by Team Member
-      // Get config people + 'Unassigned'
       const people = [...(settings.people || [])];
-      
-      // We also need to handle 'Unassigned'
-      const lanes = people.map(p => ({ id: p, title: p, type: 'member' }));
+      lanes = people.map(p => ({ id: p, title: p, type: 'member' }));
       lanes.push({ id: 'Unassigned', title: 'Unassigned', type: 'member' });
 
-      // If filtering by member, just show that one
       if (memberFilter) {
-        return lanes.filter(l => l.id === memberFilter);
+        lanes = lanes.filter(l => l.id === memberFilter);
       }
-      return lanes;
     }
-  }, [projects, settings.people, grouping, projectFilter, memberFilter]);
+    return lanes;
+  }, [projects, settings.people, grouping, projectFilter, memberFilter, projectPriorityFilter, allTasks]);
 
   // 3. Define Columns (Status)
   const columns = settings.statuses || ['Not started', 'Started', 'Held', 'Complete'];

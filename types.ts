@@ -50,6 +50,10 @@ export interface Subtask {
   requiresApproval?: boolean;
   approvalStatus?: 'pending' | 'approved' | 'rejected';
   
+  // Hold state
+  holdOwner?: string;
+  holdQuestion?: string;
+
   // Extended Metadata
   estimatedTime?: number;
   actualTime?: number;
@@ -59,6 +63,7 @@ export interface Subtask {
   isToday?: boolean;
   recordingUrl?: string;
   recordingType?: 'video' | 'audio';
+  checklist?: { id: string; text: string; completed: boolean }[];
 }
 
 export interface Milestone {
@@ -92,6 +97,8 @@ export interface Project {
   createdAt: number;
   updatedAt: number; // tracks any modification to the project
   isArchived?: boolean;
+  isUrgent?: boolean;
+  isImportant?: boolean;
   
   // Financial Fields (in Thousands $K)
   cashRequirement?: number;

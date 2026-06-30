@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Settings, Banknote, RefreshCw, User, Briefcase, ChevronDown, ChevronUp } from 'lucide-react';
+import { Settings, Banknote, RefreshCw, User, Briefcase, ChevronDown, ChevronUp, Flame, Star } from 'lucide-react';
 import { Project, AppSettings } from '../../types';
 
 interface EditProjectModalProps {
@@ -100,6 +100,35 @@ export const EditProjectModal: React.FC<EditProjectModalProps> = ({
               onChange={(e) => setEditedProject({ ...editedProject, timeBuffer: parseFloat(e.target.value) || 0 })}
               placeholder="0"
             />
+          </div>
+          <div className="col-span-2 flex flex-col gap-3 p-4 rounded-2xl border border-slate-100 bg-slate-50">
+            <label className="block text-xs font-black text-slate-400 uppercase tracking-widest">Project Flags</label>
+            <div className="flex gap-6">
+              <div className="flex items-center gap-2">
+                <input 
+                  type="checkbox" 
+                  id="isUrgent"
+                  className="w-5 h-5 rounded border-slate-300 text-orange-600 focus:ring-orange-500 cursor-pointer"
+                  checked={editedProject.isUrgent || false}
+                  onChange={(e) => setEditedProject({ ...editedProject, isUrgent: e.target.checked })}
+                />
+                <label htmlFor="isUrgent" className="text-sm font-bold text-slate-700 cursor-pointer flex items-center gap-1">
+                  Urgent <Flame size={14} className="text-orange-500" />
+                </label>
+              </div>
+              <div className="flex items-center gap-2">
+                <input 
+                  type="checkbox" 
+                  id="isImportant"
+                  className="w-5 h-5 rounded border-slate-300 text-amber-500 focus:ring-amber-500 cursor-pointer"
+                  checked={editedProject.isImportant || false}
+                  onChange={(e) => setEditedProject({ ...editedProject, isImportant: e.target.checked })}
+                />
+                <label htmlFor="isImportant" className="text-sm font-bold text-slate-700 cursor-pointer flex items-center gap-1">
+                  Important <Star size={14} className="text-amber-500" />
+                </label>
+              </div>
+            </div>
           </div>
           <div className="col-span-2 flex items-center gap-3 bg-amber-50 p-4 rounded-2xl border border-amber-100">
             <input 

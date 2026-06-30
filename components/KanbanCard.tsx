@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { User, AlertTriangle, Clock, Calendar, Trash2, Mail, Loader2, Check, Video, Mic } from 'lucide-react';
+import { User, AlertTriangle, Clock, Calendar, Trash2, Mail, Loader2, Check, Video, Mic, CheckSquare } from 'lucide-react';
 import { Subtask, AppSettings } from '../types';
 import { getStatusBorderColor } from '../constants';
 import { sendTaskEmail } from '../lib/emailUtils';
@@ -104,9 +104,9 @@ export const KanbanCard: React.FC<KanbanCardProps> = ({
       style={{ borderLeftColor: getStatusBorderColor(task.status) }}
     >
       <div className="flex justify-between items-start mb-0.5 md:mb-1">
-        {/* Milestone Name - Truncate heavily on mobile */}
-        <div className="text-[8px] md:text-[10px] text-slate-400 font-bold uppercase tracking-wider truncate flex-1 pr-4" title={`${projectName} • ${milestoneName}`}>
-          {milestoneName}
+        {/* Full Location - Wrapping instead of truncating */}
+        <div className="text-[8px] md:text-[10px] text-slate-400 font-bold uppercase tracking-wider break-words flex-1 pr-4 leading-tight mb-1" title={`Project: ${projectName} | Milestone: ${milestoneName} | Task: ${task.name}`}>
+          Project: <span className="text-indigo-400">{projectName}</span> | Milestone: <span className="text-indigo-400">{milestoneName}</span> | Task: <span className="text-indigo-400">{task.name}</span>
         </div>
         
         {/* Delete Button (Visible on Hover) - Hidden on mobile unless active/touched? keeping standard logic */}
@@ -144,6 +144,27 @@ export const KanbanCard: React.FC<KanbanCardProps> = ({
       <div className="text-[10px] md:text-sm font-bold text-slate-800 mb-1.5 md:mb-2 line-clamp-3 leading-tight pr-0 md:pr-4 break-words">
         {task.name}
       </div>
+
+      {/* Subtasks (Checklist) */}
+      {task.checklist && task.checklist.length > 0 && (
+        <div className="flex flex-col gap-1 mb-2 bg-slate-50/50 p-1.5 rounded border border-slate-100">
+          {task.checklist.slice(0, 3).map(item => (
+            <div key={item.id} className="flex items-start gap-1.5">
+              <div className={`mt-0.5 shrink-0 ${item.completed ? 'text-indigo-500' : 'text-slate-300'}`}>
+                {item.completed ? <CheckSquare size={10} /> : <div className="w-[10px] h-[10px] rounded-[2px] border border-slate-300 bg-white" />}
+              </div>
+              <span className={`text-[9px] md:text-[10px] leading-tight line-clamp-2 break-words flex-1 ${item.completed ? 'text-slate-400 line-through' : 'text-slate-600'}`}>
+                {item.text}
+              </span>
+            </div>
+          ))}
+          {task.checklist.length > 3 && (
+            <div className="text-[8px] md:text-[9px] text-slate-400 font-medium pl-4">
+              + {task.checklist.length - 3} more subtasks
+            </div>
+          )}
+        </div>
+      )}
       
       <div className="flex flex-col md:flex-row md:items-center justify-between mt-auto gap-1 md:gap-2">
         {/* Assignee */}
@@ -187,6 +208,12 @@ export const KanbanCard: React.FC<KanbanCardProps> = ({
                 <div className={`flex items-center gap-0.5 text-[8px] md:text-[10px] font-bold px-1 py-0.5 rounded border ${isOverdue ? 'bg-red-50 text-red-600 border-red-100' : 'bg-slate-50 text-slate-400 border-slate-100'}`} title={isOverdue ? "Overdue" : "Due Date"}>
                     <Calendar size={8} className="md:w-[10px] md:h-[10px]" />
                     <span>{dueDateString}</span>
+                </div>
+            )}
+            {task.checklist && task.checklist.length > 0 && (
+                <div className={`flex items-center gap-0.5 text-[8px] md:text-[10px] font-bold px-1 py-0.5 rounded border ${task.checklist.filter(c => c.completed).length === task.checklist.length ? 'bg-indigo-50 text-indigo-600 border-indigo-100' : 'bg-slate-50 text-slate-500 border-slate-200'}`} title="Checklist Progress">
+                    <CheckSquare size={8} className="md:w-[10px] md:h-[10px]" />
+                    <span>{task.checklist.filter(c => c.completed).length}/{task.checklist.length}</span>
                 </div>
             )}
         </div>

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Mail, Phone, X, Trash2, ExternalLink, Calendar, Clock, AlertTriangle, Loader2, Check } from 'lucide-react';
+import { Mail, Phone, X, Trash2, ExternalLink, Calendar, Clock, AlertTriangle, Loader2, Check, Plus } from 'lucide-react';
 import { Subtask, AppSettings } from '../../types';
 import { sendTaskEmail } from '../../lib/emailUtils';
 import { ScreenRecorder } from '../ScreenRecorder';
@@ -76,11 +76,17 @@ interface EditTaskModalProps {
   onDelete: () => void;
   children?: React.ReactNode;
   projectTimeUnit?: string;
+  onCreateFollowUp?: () => void;
 }
 
 export const EditTaskModal: React.FC<EditTaskModalProps> = ({ 
-  isOpen, onClose, task, milestoneName, projectName, settings, onUpdate, onDelete, children, projectTimeUnit 
+  isOpen, onClose, task, milestoneName, projectName, settings, onUpdate, onDelete, children, projectTimeUnit, onCreateFollowUp
 }) => {
+  const [showApproveOptions, setShowApproveOptions] = useState(false);
+  const [showDisapproveOptions, setShowDisapproveOptions] = useState(false);
+  const [disapproveComment, setDisapproveComment] = useState('');
+  const [holdResponseInput, setHoldResponseInput] = useState('');
+
   if (!isOpen || !task) return null;
 
   // Helper to format timestamp to YYYY-MM-DD for input[type="date"]
@@ -116,7 +122,7 @@ export const EditTaskModal: React.FC<EditTaskModalProps> = ({
                   </span>
                 )}
               </div>
-              <p className="text-xs text-slate-500 font-medium">In milestone: <span className="text-indigo-600">{milestoneName}</span></p>
+              <p className="text-xs text-slate-500 font-medium truncate" title={`Project: ${projectName} | Milestone: ${milestoneName} | Task: ${task.name}`}>Project: <span className="text-indigo-600">{projectName}</span> | Milestone: <span className="text-indigo-600">{milestoneName}</span> | Task: <span className="text-indigo-600">{task.name}</span></p>
             </div>
             <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full transition-colors"><X size={20} /></button>
         </div>
@@ -255,15 +261,141 @@ export const EditTaskModal: React.FC<EditTaskModalProps> = ({
                   {(settings.statuses || []).map(s => <option key={s} value={s}>{s}</option>)}
                 </select>
                 {task.accountable && task.status === 'Complete' && task.approvalStatus !== 'approved' && (
-                  <button 
-                    onClick={() => onUpdate({ approvalStatus: 'approved' })}
-                    className="bg-emerald-600 text-white font-bold px-4 rounded-xl hover:bg-emerald-700 transition"
-                  >
-                    Approve
-                  </button>
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={() => { setShowApproveOptions(true); setShowDisapproveOptions(false); }}
+                      className="bg-emerald-600 text-white font-bold px-4 rounded-xl hover:bg-emerald-700 transition"
+                    >
+                      Approve
+                    </button>
+                    <button 
+                      onClick={() => { setShowDisapproveOptions(true); setShowApproveOptions(false); }}
+                      className="bg-rose-600 text-white font-bold px-4 rounded-xl hover:bg-rose-700 transition"
+                    >
+                      Disapprove
+                    </button>
+                  </div>
                 )}
               </div>
             </div>
+
+            {/* Approval / Disapproval Flow Overlays */}
+            {showApproveOptions && (
+              <div className="mt-2 p-4 bg-emerald-50 border border-emerald-200 rounded-xl">
+                <p className="text-sm font-bold text-emerald-800 mb-2">How would you like to approve this?</p>
+                <div className="flex gap-2">
+                  <button 
+                    onClick={() => {
+                      onUpdate({ approvalStatus: 'approved' });
+                      setShowApproveOptions(false);
+                    }}
+                    className="flex-1 bg-white text-emerald-700 font-bold py-2 rounded-lg border border-emerald-200 hover:bg-emerald-100 transition"
+                  >
+                    Set as Complete
+                  </button>
+                  <button 
+                    onClick={() => {
+                      onUpdate({ approvalStatus: 'approved' });
+                      if (onCreateFollowUp) onCreateFollowUp();
+                      setShowApproveOptions(false);
+                    }}
+                    className="flex-1 bg-emerald-600 text-white font-bold py-2 rounded-lg hover:bg-emerald-700 transition"
+                  >
+                    Create Follow Up
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {showDisapproveOptions && (
+              <div className="mt-2 p-4 bg-rose-50 border border-rose-200 rounded-xl">
+                <p className="text-sm font-bold text-rose-800 mb-2">Add a comment explaining what needs to be fixed:</p>
+                <textarea 
+                  className="w-full h-20 bg-white border border-rose-200 rounded-lg px-3 py-2 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-rose-500 resize-none mb-2"
+                  placeholder="Needs more work on..."
+                  value={disapproveComment}
+                  onChange={(e) => setDisapproveComment(e.target.value)}
+                />
+                <div className="flex gap-2 justify-end">
+                  <button 
+                    onClick={() => setShowDisapproveOptions(false)}
+                    className="px-4 py-2 text-sm font-bold text-slate-500 hover:text-slate-700"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    onClick={() => {
+                      onUpdate({ 
+                        approvalStatus: 'rejected', 
+                        status: 'Started', 
+                        notes: task.notes ? `${task.notes}\n\nApprover Comment: ${disapproveComment}` : `Approver Comment: ${disapproveComment}` 
+                      });
+                      setShowDisapproveOptions(false);
+                      setDisapproveComment('');
+                    }}
+                    disabled={!disapproveComment.trim()}
+                    className="bg-rose-600 text-white font-bold px-4 py-2 rounded-lg hover:bg-rose-700 transition disabled:opacity-50"
+                  >
+                    Send Back to Started
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {task.status === 'Held' && (
+              <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-xl">
+                <h4 className="text-sm font-bold text-amber-900 mb-2">Hold Details</h4>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-[10px] font-black text-amber-700 uppercase tracking-widest mb-1">Make someone responsible for the hold</label>
+                    <select 
+                      className="w-full bg-white border border-amber-200 rounded-lg px-4 py-2 text-slate-900 outline-none focus:ring-2 focus:ring-amber-500"
+                      value={task.holdOwner || ''}
+                      onChange={(e) => onUpdate({ holdOwner: e.target.value })}
+                    >
+                      <option value="">Select someone...</option>
+                      {(settings.people || []).map(person => <option key={person} value={person}>{person}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-amber-700 uppercase tracking-widest mb-1">Question / Reason for hold</label>
+                    <textarea
+                      className="w-full bg-white border border-amber-200 rounded-lg px-3 py-2 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-amber-500 resize-none h-16"
+                      value={task.holdQuestion || ''}
+                      onChange={(e) => onUpdate({ holdQuestion: e.target.value })}
+                      placeholder="Why is it held? What do you need?"
+                    />
+                  </div>
+                  <div className="bg-white border border-amber-200 rounded-lg p-3">
+                    <label className="block text-[10px] font-black text-amber-700 uppercase tracking-widest mb-1">Respond & Unhold</label>
+                    <textarea 
+                      className="w-full bg-white border border-amber-200 rounded-lg px-3 py-2 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-amber-500 resize-none h-16 mb-2"
+                      placeholder="Answer the question..."
+                      value={holdResponseInput}
+                      onChange={(e) => setHoldResponseInput(e.target.value)}
+                    />
+                    <div className="flex justify-end">
+                      <button
+                         onClick={() => {
+                           const newNote = `Hold Question: ${task.holdQuestion || 'None'}\nHold Resolved by ${task.holdOwner || 'Someone'}: ${holdResponseInput}`;
+                           onUpdate({ 
+                             status: 'Started', 
+                             holdOwner: undefined,
+                             holdQuestion: undefined,
+                             notes: task.notes ? `${task.notes}\n\n${newNote}` : newNote 
+                           });
+                           setHoldResponseInput('');
+                         }}
+                         disabled={!holdResponseInput.trim()}
+                         className="px-4 py-2 bg-amber-600 text-white rounded-lg font-bold text-sm hover:bg-amber-700 transition disabled:opacity-50"
+                      >
+                        Submit Response & Start Task
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
             
             <div className="flex items-center gap-6 mt-1">
                <label className="flex items-center gap-2 cursor-pointer">
@@ -363,6 +495,58 @@ export const EditTaskModal: React.FC<EditTaskModalProps> = ({
                   <ExternalLink size={20} />
                 </a>
               )}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Checklist Items</label>
+            <div className="space-y-2 mb-3">
+              {(task.checklist || []).map((item, idx) => (
+                <div key={item.id} className="flex items-center gap-2">
+                  <button 
+                    onClick={() => {
+                      const newChecklist = [...(task.checklist || [])];
+                      newChecklist[idx] = { ...item, completed: !item.completed };
+                      onUpdate({ checklist: newChecklist });
+                    }}
+                    className={`flex-shrink-0 w-5 h-5 rounded-md border flex items-center justify-center transition-colors ${
+                      item.completed ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-slate-300 bg-white hover:border-indigo-400'
+                    }`}
+                  >
+                    {item.completed && <Check size={14} />}
+                  </button>
+                  <input
+                    type="text"
+                    className={`flex-1 bg-transparent border-none text-sm outline-none focus:ring-0 ${item.completed ? 'text-slate-400 line-through' : 'text-slate-700'}`}
+                    value={item.text}
+                    onChange={(e) => {
+                      const newChecklist = [...(task.checklist || [])];
+                      newChecklist[idx] = { ...item, text: e.target.value };
+                      onUpdate({ checklist: newChecklist });
+                    }}
+                  />
+                  <button 
+                    onClick={() => {
+                      const newChecklist = (task.checklist || []).filter(c => c.id !== item.id);
+                      onUpdate({ checklist: newChecklist });
+                    }}
+                    className="p-1 text-slate-400 hover:text-rose-500 rounded"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              ))}
+              <div className="flex items-center gap-2 mt-2">
+                <button 
+                  onClick={() => {
+                    const newItem = { id: `chk-${Date.now()}`, text: '', completed: false };
+                    onUpdate({ checklist: [...(task.checklist || []), newItem] });
+                  }}
+                  className="flex items-center gap-1 text-xs font-bold text-indigo-600 hover:text-indigo-800 transition bg-indigo-50 px-2 py-1.5 rounded-lg"
+                >
+                  <Plus size={14} /> Add Item
+                </button>
+              </div>
             </div>
           </div>
 

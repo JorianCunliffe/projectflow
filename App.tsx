@@ -210,6 +210,7 @@ export const App: React.FC = () => {
   const [kanbanFilterProject, setKanbanFilterProject] = useState<string>('ALL');
   const [kanbanFilterMember, setKanbanFilterMember] = useState<string>('ALL');
   const [kanbanFilterRole, setKanbanFilterRole] = useState<string>('ALL');
+  const [kanbanFilterProjectPriority, setKanbanFilterProjectPriority] = useState<string>('ALL');
   const [kanbanFilterImportant, setKanbanFilterImportant] = useState<boolean>(false);
   const [kanbanFilterToday, setKanbanFilterToday] = useState<boolean>(false);
   const [kanbanFilterLate, setKanbanFilterLate] = useState<boolean>(false);
@@ -947,6 +948,46 @@ export const App: React.FC = () => {
   };
 
   // AI & Project Manipulation Functions (Unchanged logic)
+  const handleCreateFollowUpTask = (mId: string, sIdx: number) => {
+      const p = projects.find(pr => pr.id === selectedProjectId);
+      const s = p?.milestones.find(mi => mi.id === mId)?.subtasks[sIdx];
+      if (!p || !s) return;
+      
+      const taskIdNum = settings.nextTaskId || 1;
+      setSettings(prev => ({ ...prev, nextTaskId: taskIdNum + 1 }));
+      const newId = `s-${Date.now()}`;
+      
+      const duplicateTask: Subtask = {
+        ...s,
+        id: newId,
+        displayId: `T-${taskIdNum}`,
+        status: 'Not started',
+        completedAt: undefined,
+        commentHistory: [],
+        notes: '',
+        dueDate: undefined,
+        actualTime: undefined,
+        approvalStatus: undefined,
+        name: `Follow up: ${s.name}`
+      };
+
+      setProjects(prev => prev.map(p => p.id === selectedProjectId ? {
+        ...p,
+        updatedAt: Date.now(),
+        milestones: p.milestones.map(m => m.id === mId ? {
+          ...m,
+          subtasks: [...(m.subtasks || []), duplicateTask]
+        } : m)
+      } : p));
+
+      logActivity(p.id, duplicateTask.id, duplicateTask.name, 'created', 'Created as follow up task', {
+        responsible: duplicateTask.assignedTo,
+        accountable: duplicateTask.accountable,
+        consulted: duplicateTask.consulted,
+        informed: duplicateTask.informed
+      });
+  };
+
   const handleBrainstormSubtasks = async (mId: string) => {
     if (!activeProject) return;
     const milestone = activeProject.milestones.find(m => m.id === mId);
@@ -1664,18 +1705,9 @@ export const App: React.FC = () => {
               ProjectFlow
             </h1>
             <div className="flex bg-slate-100 rounded-lg p-0.5">
-               <button 
-                 onClick={() => setKanbanGrouping('project')}
-                 className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all flex items-center gap-1 ${kanbanGrouping === 'project' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}`}
-               >
-                 <Briefcase size={12} /> Project
-               </button>
-               <button 
-                 onClick={() => setKanbanGrouping('member')}
-                 className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all flex items-center gap-1 ${kanbanGrouping === 'member' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}`}
-               >
-                 <Users size={12} /> Member
-               </button>
+               <span className="px-3 py-1.5 rounded-md text-xs font-bold text-indigo-600 flex items-center gap-1">
+                 <Briefcase size={12} /> View By: Project
+               </span>
             </div>
          </div>
          <div className="p-2 flex gap-2 overflow-x-auto">
@@ -1871,26 +1903,23 @@ export const App: React.FC = () => {
         {isKanbanMode && (
           <div className="hidden md:flex bg-white border-b border-slate-200 px-6 py-3 flex-wrap items-center gap-4 shrink-0 shadow-sm z-20">
              <div className="flex items-center gap-2 text-sm text-slate-500 font-medium">
-                <span className="uppercase text-[10px] font-bold tracking-wider text-slate-400">View By:</span>
-                <div className="flex bg-slate-100 rounded-lg p-0.5">
-                   <button 
-                     onClick={() => setKanbanGrouping('project')}
-                     className={`px-3 py-1 rounded-md text-xs font-bold transition-all flex items-center gap-1 ${kanbanGrouping === 'project' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}`}
-                   >
-                     <Briefcase size={12} /> Project
-                   </button>
-                   <button 
-                     onClick={() => setKanbanGrouping('member')}
-                     className={`px-3 py-1 rounded-md text-xs font-bold transition-all flex items-center gap-1 ${kanbanGrouping === 'member' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}`}
-                   >
-                     <Users size={12} /> Member
-                   </button>
-                </div>
+                <span className="uppercase text-[10px] font-bold tracking-wider text-slate-400">View By: Project</span>
              </div>
              
              <div className="h-6 w-px bg-slate-200 mx-2" />
              
              <div className="flex items-center gap-2">
+               <select 
+                 className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500"
+                 value={kanbanFilterProjectPriority}
+                 onChange={(e) => setKanbanFilterProjectPriority(e.target.value)}
+               >
+                 <option value="ALL">All Project Priorities</option>
+                 <option value="URGENT">Urgent Projects</option>
+                 <option value="IMPORTANT">Important Projects</option>
+                 <option value="BOTH">Urgent & Important Projects</option>
+               </select>
+
                <select 
                  className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500"
                  value={kanbanFilterProject}
@@ -1933,6 +1962,7 @@ export const App: React.FC = () => {
                )}
 
                <div className="h-4 w-px bg-slate-200 mx-1" />
+               <span className="uppercase text-[10px] font-bold tracking-wider text-slate-400">Task Priorities:</span>
 
                <button
                  onClick={() => setKanbanFilterImportant(!kanbanFilterImportant)}
@@ -2001,6 +2031,7 @@ export const App: React.FC = () => {
             projects={activeProjects}
             settings={settings}
             grouping={kanbanGrouping}
+            projectPriorityFilter={kanbanFilterProjectPriority}
             projectFilter={kanbanFilterProject === 'ALL' ? null : kanbanFilterProject}
             memberFilter={kanbanFilterMember === 'ALL' ? null : kanbanFilterMember}
             roleFilter={kanbanFilterRole === 'ALL' ? null : kanbanFilterRole}
@@ -2076,6 +2107,7 @@ export const App: React.FC = () => {
                 onEditProject={setEditingProject}
                 onDuplicateProject={handleDuplicateProject}
                 onDeleteProject={handleDeleteProject}
+                onUpdateProject={(id, updates) => setProjects(prev => prev.map(p => p.id === id ? { ...p, ...updates, updatedAt: Date.now() } : p))}
                 formatDate={formatDate}
               />
             ) : (
@@ -2396,6 +2428,7 @@ export const App: React.FC = () => {
            settings={settings}
            onUpdate={(updates) => updateSubtask(isEditingSubtask.mId, isEditingSubtask.sIdx!, updates)}
            onDelete={() => { deleteSubtask(isEditingSubtask.mId, isEditingSubtask.sIdx!); setIsEditingSubtask(null); }}
+           onCreateFollowUp={() => handleCreateFollowUpTask(isEditingSubtask.mId, isEditingSubtask.sIdx!)}
          />
       )}
 
