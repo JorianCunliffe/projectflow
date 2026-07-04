@@ -572,6 +572,23 @@ export const App: React.FC = () => {
     [projects]
   );
 
+  const pendingActionCount = useMemo(() => {
+    let count = 0;
+    activeProjects.forEach(p => {
+      p.milestones.forEach(m => {
+        m.subtasks.forEach(s => {
+          if (s.accountable && s.approvalStatus !== 'approved' && s.status === 'Complete') {
+            count++;
+          }
+          if (s.status === 'Held') {
+            count++;
+          }
+        });
+      });
+    });
+    return count;
+  }, [activeProjects]);
+
   const canvasData = useMemo(() => {
     if (!activeProject) return { milestones: [], width: 0, height: 0, markerTop: 0, markerHeight: 0 };
     const levels: Record<string, number> = {};
@@ -738,11 +755,11 @@ export const App: React.FC = () => {
       
       (milestone.dependsOn || []).forEach(parentId => {
         const parentDates = calculate(parentId);
-        if (parentDates.targetDate > maxParentTarget) {
+        if (parentDates.targetDate >= maxParentTarget) {
           maxParentTarget = parentDates.targetDate;
           predecessor = parentId;
         }
-        if (parentDates.actualDate > maxParentActual) {
+        if (parentDates.actualDate >= maxParentActual) {
           maxParentActual = parentDates.actualDate;
         }
       });
@@ -771,7 +788,7 @@ export const App: React.FC = () => {
     let maxActualDate = new Date(activeProject.startDate);
     let lastNode: string | null = null;
     dates.forEach((val, key) => {
-      if (val.targetDate > maxDate) {
+      if (val.targetDate >= maxDate) {
         maxDate = val.targetDate;
         lastNode = key;
       }
@@ -781,10 +798,12 @@ export const App: React.FC = () => {
     });
 
     const criticalConnections = new Set<string>();
+    const criticalNodes = new Set<string>();
     let curr = lastNode;
     const visited = new Set<string>();
     while(curr && !visited.has(curr)) {
       visited.add(curr);
+      criticalNodes.add(curr);
       const pred = dates.get(curr)?.predecessor;
       if (pred) {
         criticalConnections.add(`${pred}-${curr}`);
@@ -792,7 +811,7 @@ export const App: React.FC = () => {
       curr = pred || null;
     }
 
-    return { dates, criticalConnections, maxDate, maxActualDate };
+    return { dates, criticalConnections, criticalNodes, maxDate, maxActualDate };
   }, [activeProject]);
 
   const projectStats = useMemo(() => {
@@ -1046,13 +1065,15 @@ export const App: React.FC = () => {
       return task;
     };
 
-    const defaultMilestones: Milestone[] = [{
-      id: 'm1',
-      name: 'Initial Concept',
+    const setupMilestone: Milestone = {
+      id: 'm-setup',
+      name: 'Setup Project',
       dependsOn: [],
-      estimatedDuration: 7,
-      subtasks: [generateSubtask({ name: 'Define Scope', description: 'Basic requirements gather' })]
-    }];
+      estimatedDuration: 1,
+      subtasks: [generateSubtask({ name: 'Define home directory', description: 'Set up initial project workspace and directories.' })]
+    };
+
+    const defaultMilestones: Milestone[] = [setupMilestone];
 
     if (newProjectData.cloneFromId) {
       const parentProject = [...projects, ...archivedProjects].find(p => p.id === newProjectData.cloneFromId);
@@ -1092,6 +1113,14 @@ export const App: React.FC = () => {
           dependsOn: m.dependsOn || [],
           subtasks: (m.subtasks || []).map((s: any) => generateSubtask(s))
         }));
+        
+        // Add setup milestone as the first milestone
+        milestones.unshift(setupMilestone);
+        
+        // Make the originally first AI milestone depend on setupMilestone if it has no dependencies
+        if (milestones.length > 1 && (!milestones[1].dependsOn || milestones[1].dependsOn.length === 0)) {
+          milestones[1].dependsOn = [setupMilestone.id];
+        }
       } else {
         console.warn("AI Generation failed. Using default template.");
         milestones = defaultMilestones;
@@ -1857,12 +1886,17 @@ export const App: React.FC = () => {
           </button>
           <button 
             onClick={() => { setIsApprovalsMode(true); setIsFeedMode(false); setIsScratchMode(false); setIsKanbanMode(false); setIsReportingMode(false); }}
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-bold transition-all ${
+            className={`relative flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-bold transition-all ${
               isApprovalsMode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
             }`}
           >
             <CheckCircle size={16} />
             <span className="hidden xl:inline">Approvals</span>
+            {pendingActionCount > 0 && (
+              <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full border border-white shadow-sm">
+                {pendingActionCount}
+              </span>
+            )}
           </button>
           <button 
             onClick={() => { setIsReportingMode(true); setIsApprovalsMode(false); setIsFeedMode(false); setIsScratchMode(false); setIsKanbanMode(false); }}
@@ -2348,6 +2382,7 @@ export const App: React.FC = () => {
                                   projectName={activeProject?.name || ''}
                                   projectTimeUnit={activeProject?.timeUnit || 'days'}
                                   duration={getMilestoneDuration(m)}
+                                  isCritical={milestoneTimeline.criticalNodes.has(m.id)}
                                   onClick={() => {}}
                                 />
                               </div>

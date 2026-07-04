@@ -96,6 +96,7 @@ interface MilestoneNodeProps {
   projectName: string;
   projectTimeUnit: string;
   duration: number;
+  isCritical?: boolean;
 }
 
 export const MilestoneNode: React.FC<MilestoneNodeProps> = ({
@@ -124,7 +125,8 @@ export const MilestoneNode: React.FC<MilestoneNodeProps> = ({
   settings,
   projectName,
   projectTimeUnit,
-  duration
+  duration,
+  isCritical
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [tempName, setTempName] = useState(milestone.name);
@@ -299,6 +301,7 @@ export const MilestoneNode: React.FC<MilestoneNodeProps> = ({
         {/* The Circle - Draggable Target */}
         <div 
           className={`rounded-full bg-white shadow-xl ring-2 transition-all duration-300 active:scale-95 
+            ${isCritical ? 'ring-4 ring-red-500' : ''}
             ${isThinking ? 'ring-indigo-400 animate-pulse' : ''}
             ${isLinkingMode && isSource ? 'ring-4 ring-indigo-500 scale-110' : ''}
             ${isLinkingMode && !isSource ? 'ring-slate-100 hover:ring-indigo-400 hover:scale-110' : 'ring-slate-100 group-hover:ring-indigo-300 group-hover:scale-110'}
