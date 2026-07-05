@@ -1325,11 +1325,11 @@ export const App: React.FC = () => {
       }));
   };
 
-  const handleAddSubtask = (mId: string) => {
+  const handleAddSubtask = (mId: string, taskName?: string) => {
       const taskIdNum = settings.nextTaskId || 1;
       setSettings(prev => ({ ...prev, nextTaskId: taskIdNum + 1 }));
       const newId = `s-${Date.now()}`;
-      setProjects(prev => prev.map(p => p.id === selectedProjectId ? { ...p, updatedAt: Date.now(), milestones: p.milestones.map(m => m.id === mId ? { ...m, subtasks: [...(m.subtasks || []), { id: newId, displayId: `T-${taskIdNum}`, name: 'New Task', description: '', assignedTo: '', notes: '', status: 'Not started' }] } : m) } : p));
+      setProjects(prev => prev.map(p => p.id === selectedProjectId ? { ...p, updatedAt: Date.now(), milestones: p.milestones.map(m => m.id === mId ? { ...m, subtasks: [...(m.subtasks || []), { id: newId, displayId: `T-${taskIdNum}`, name: taskName || 'New Task', description: '', assignedTo: '', notes: '', status: 'Not started' }] } : m) } : p));
   };
   const updateSubtask = (mId: string, sIdx: number, updates: Partial<Subtask>) => {
       const p = projects.find(pr => pr.id === selectedProjectId);

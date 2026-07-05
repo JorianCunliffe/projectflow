@@ -69,7 +69,7 @@ const TaskEmailButton: React.FC<{
 interface MilestoneNodeProps {
   milestone: Milestone;
   showSubtasks: boolean;
-  onAddSubtask: (milestoneId: string) => void;
+  onAddSubtask: (milestoneId: string, taskName?: string) => void;
   onAddSequence: (milestoneId: string) => void;
   onAddPrevious: (milestoneId: string) => void;
   onAddParallel: (milestoneId: string) => void;
@@ -130,6 +130,9 @@ export const MilestoneNode: React.FC<MilestoneNodeProps> = ({
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [tempName, setTempName] = useState(milestone.name);
+  const [isAddingTask, setIsAddingTask] = useState(false);
+  const [newTaskName, setNewTaskName] = useState('');
+  const newTaskInputRef = useRef<HTMLInputElement>(null);
   const [isThinking, setIsThinking] = useState(false);
   const [showLinkMenu, setShowLinkMenu] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -147,6 +150,12 @@ export const MilestoneNode: React.FC<MilestoneNodeProps> = ({
       setCurrentPos({ x: milestone.x || 0, y: milestone.y || 0 });
     }
   }, [milestone.x, milestone.y, isDragging]);
+
+  useEffect(() => {
+    if (isAddingTask && newTaskInputRef.current) {
+      newTaskInputRef.current.focus();
+    }
+  }, [isAddingTask]);
 
   useEffect(() => {
     if (isEditing) {
@@ -548,12 +557,49 @@ export const MilestoneNode: React.FC<MilestoneNodeProps> = ({
                 />
               </div>
             ))}
-            <button 
-              onClick={(e) => { e.stopPropagation(); onAddSubtask(milestone.id); }}
-              className="mt-1 w-full py-1.5 border border-dashed border-slate-200 rounded-lg text-[10px] text-slate-400 font-bold hover:border-indigo-300 hover:text-indigo-500 transition-colors flex items-center justify-center gap-1"
-            >
-              <Plus size={10} /> NEW TASK
-            </button>
+            {isAddingTask ? (
+              <div 
+                className="mt-1 flex items-center gap-2 p-1.5 bg-white border-2 border-indigo-200 rounded-lg shadow-sm relative z-[100]"
+                onClick={(e) => e.stopPropagation()}
+                onPointerDown={(e) => e.stopPropagation()}
+              >
+                <input
+                  ref={newTaskInputRef}
+                  type="text"
+                  value={newTaskName}
+                  onChange={(e) => setNewTaskName(e.target.value)}
+                  placeholder="Task name... (Enter to add)"
+                  className="flex-1 bg-transparent text-[10px] font-bold text-slate-700 outline-none placeholder:text-slate-300"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && newTaskName.trim()) {
+                      e.preventDefault();
+                      onAddSubtask(milestone.id, newTaskName.trim());
+                      setNewTaskName('');
+                    } else if (e.key === 'Escape') {
+                      setIsAddingTask(false);
+                      setNewTaskName('');
+                    }
+                  }}
+                  onBlur={() => {
+                    if (newTaskName.trim()) {
+                      onAddSubtask(milestone.id, newTaskName.trim());
+                    }
+                    setIsAddingTask(false);
+                    setNewTaskName('');
+                  }}
+                />
+              </div>
+            ) : (
+              <button 
+                onClick={(e) => { 
+                  e.stopPropagation(); 
+                  setIsAddingTask(true);
+                }}
+                className="mt-1 w-full py-1.5 border border-dashed border-slate-200 rounded-lg text-[10px] text-slate-400 font-bold hover:border-indigo-300 hover:text-indigo-500 transition-colors flex items-center justify-center gap-1"
+              >
+                <Plus size={10} /> NEW TASK
+              </button>
+            )}
           </div>
         </div>
       )}

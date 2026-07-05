@@ -518,6 +518,14 @@ export const EditTaskModal: React.FC<EditTaskModalProps> = ({
                   <input
                     type="text"
                     className={`flex-1 bg-transparent border-none text-sm outline-none focus:ring-0 ${item.completed ? 'text-slate-400 line-through' : 'text-slate-700'}`}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        const newItem = { id: `chk-${Date.now()}`, text: '', completed: false };
+                        onUpdate({ checklist: [...(task.checklist || []), newItem] });
+                      }
+                    }}
+                    autoFocus={item.text === ''}
                     value={item.text}
                     onChange={(e) => {
                       const newChecklist = [...(task.checklist || [])];
