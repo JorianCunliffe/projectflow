@@ -258,56 +258,8 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
           </div>
 
           <div className="bg-slate-50 rounded-2xl p-5 border border-slate-100 space-y-5">
-            <div>
-              <div className="flex items-center gap-2 mb-1 text-indigo-600 font-bold text-sm uppercase tracking-wider">
-                <Banknote size={16} /> Financial Overview (in $'000s)
-              </div>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Cash Required ($'000s)</label>
-                  <input 
-                    type="number" 
-                    className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-slate-900 font-bold text-sm outline-none focus:border-indigo-500"
-                    value={newProject.cashRequirement || ''}
-                    onChange={(e) => setNewProject({ ...newProject, cashRequirement: parseFloat(e.target.value) || 0 })}
-                    placeholder="0"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Debt Required ($'000s)</label>
-                  <input 
-                    type="number" 
-                    className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-slate-900 font-bold text-sm outline-none focus:border-indigo-500"
-                    value={newProject.debtRequirement || ''}
-                    onChange={(e) => setNewProject({ ...newProject, debtRequirement: parseFloat(e.target.value) || 0 })}
-                    placeholder="0"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Value at Comp ($'000s)</label>
-                  <input 
-                    type="number" 
-                    className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-slate-900 font-bold text-sm outline-none focus:border-indigo-500"
-                    value={newProject.valueAtCompletion || ''}
-                    onChange={(e) => setNewProject({ ...newProject, valueAtCompletion: parseFloat(e.target.value) || 0 })}
-                    placeholder="0"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-bold text-emerald-600 uppercase mb-1">Profit ($'000s)</label>
-                  <input 
-                    type="number" 
-                    className="w-full bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2 text-emerald-800 font-bold text-sm outline-none focus:border-emerald-500"
-                    value={newProject.profit || ''}
-                    onChange={(e) => setNewProject({ ...newProject, profit: parseFloat(e.target.value) || 0 })}
-                    placeholder="0"
-                  />
-                </div>
-              </div>
-            </div>
-
             {/* Cash Flow Projections */}
-            <div className="pt-3 border-t border-slate-200/80">
+            <div>
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
                   <Banknote size={14} className="text-emerald-600" /> Cash Flow Projections (Dates & Amounts)

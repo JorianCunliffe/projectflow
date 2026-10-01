@@ -217,69 +217,8 @@ export const EditProjectModal: React.FC<EditProjectModalProps> = ({
         </div>
 
         <div className="bg-slate-50 rounded-2xl p-5 border border-slate-100 mb-8 space-y-6">
-            <div>
-              <div className="flex items-center gap-2 mb-1 text-indigo-600 font-bold text-sm uppercase tracking-wider">
-                <Banknote size={16} /> Financial Overview (in $'000s)
-              </div>
-              <p className="text-xs text-slate-500 mb-3">Overall project financing and return metrics.</p>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Cash Required ($'000s)</label>
-                  <input 
-                    type="number" 
-                    className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-slate-900 font-bold text-sm outline-none focus:border-indigo-500 shadow-sm"
-                    value={editedProject.cashRequirement || ''}
-                    onChange={(e) => setEditedProject({ ...editedProject, cashRequirement: parseFloat(e.target.value) || 0 })}
-                    placeholder="0"
-                  />
-                  {!!editedProject.cashRequirement && (
-                    <span className="text-[10px] text-slate-400 font-medium">${(editedProject.cashRequirement * 1000).toLocaleString()}</span>
-                  )}
-                </div>
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Debt Required ($'000s)</label>
-                  <input 
-                    type="number" 
-                    className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-slate-900 font-bold text-sm outline-none focus:border-indigo-500 shadow-sm"
-                    value={editedProject.debtRequirement || ''}
-                    onChange={(e) => setEditedProject({ ...editedProject, debtRequirement: parseFloat(e.target.value) || 0 })}
-                    placeholder="0"
-                  />
-                  {!!editedProject.debtRequirement && (
-                    <span className="text-[10px] text-slate-400 font-medium">${(editedProject.debtRequirement * 1000).toLocaleString()}</span>
-                  )}
-                </div>
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Value at Comp ($'000s)</label>
-                  <input 
-                    type="number" 
-                    className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-slate-900 font-bold text-sm outline-none focus:border-indigo-500 shadow-sm"
-                    value={editedProject.valueAtCompletion || ''}
-                    onChange={(e) => setEditedProject({ ...editedProject, valueAtCompletion: parseFloat(e.target.value) || 0 })}
-                    placeholder="0"
-                  />
-                  {!!editedProject.valueAtCompletion && (
-                    <span className="text-[10px] text-slate-400 font-medium">${(editedProject.valueAtCompletion * 1000).toLocaleString()}</span>
-                  )}
-                </div>
-                <div>
-                  <label className="block text-[10px] font-bold text-emerald-600 uppercase mb-1">Profit ($'000s)</label>
-                  <input 
-                    type="number" 
-                    className="w-full bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2 text-emerald-800 font-bold text-sm outline-none focus:border-emerald-500 shadow-sm"
-                    value={editedProject.profit || ''}
-                    onChange={(e) => setEditedProject({ ...editedProject, profit: parseFloat(e.target.value) || 0 })}
-                    placeholder="0"
-                  />
-                  {!!editedProject.profit && (
-                    <span className="text-[10px] text-emerald-600 font-medium">${(editedProject.profit * 1000).toLocaleString()}</span>
-                  )}
-                </div>
-              </div>
-            </div>
-
             {/* Cash Flow Milestone Projections */}
-            <div className="pt-4 border-t border-slate-200/80">
+            <div>
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2 text-slate-800 font-bold text-xs uppercase tracking-wider">
                   <Banknote size={15} className="text-emerald-600" /> Cash Flow Projections (Dates & Amounts)

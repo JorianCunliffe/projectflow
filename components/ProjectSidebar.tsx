@@ -656,26 +656,6 @@ export const ProjectSidebar: React.FC<ProjectSidebarProps> = ({
                         </div>
                       </div>
                     </div>
-
-                    {/* Capital Requirements Grid */}
-                    <div className="grid grid-cols-2 gap-2 text-xs">
-                      <div className="bg-white p-2.5 rounded-xl border border-slate-200">
-                        <span className="text-[9px] font-black text-slate-400 uppercase block">Cash Required</span>
-                        <span className="text-sm font-black text-slate-800">${project?.cashRequirement || 0}k</span>
-                      </div>
-                      <div className="bg-white p-2.5 rounded-xl border border-slate-200">
-                        <span className="text-[9px] font-black text-slate-400 uppercase block">Debt Required</span>
-                        <span className="text-sm font-black text-slate-800">${project?.debtRequirement || 0}k</span>
-                      </div>
-                      <div className="bg-white p-2.5 rounded-xl border border-slate-200">
-                        <span className="text-[9px] font-black text-slate-400 uppercase block">Value at Comp</span>
-                        <span className="text-sm font-black text-slate-800">${project?.valueAtCompletion || 0}k</span>
-                      </div>
-                      <div className="bg-emerald-50 p-2.5 rounded-xl border border-emerald-200">
-                        <span className="text-[9px] font-black text-emerald-700 uppercase block">Target Profit</span>
-                        <span className="text-sm font-black text-emerald-900">${project?.profit || 0}k</span>
-                      </div>
-                    </div>
                   </div>
                 )}
 
