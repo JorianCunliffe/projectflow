@@ -1,29 +1,32 @@
 {
   "rules": {
     "invites": {
-      ".read": "true",
-      ".write": "auth != null && (data.exists() ? true : root.child('users').child(auth.uid).child('orgId').val() == newData.child('orgId').val())"
+      "$token": {
+        ".read": "auth != null && auth.token.firebase.sign_in_provider != 'anonymous'",
+        ".write": "auth != null && auth.token.firebase.sign_in_provider != 'anonymous' && (!newData.exists() || (data.exists() ? true : root.child('users').child(auth.uid).child('orgId').val() === newData.child('orgId').val()))"
+      }
     },
     "projects": {
       "$orgId": {
-        ".read": "root.child('users').child(auth.uid).child('orgId').val() === $orgId",
-        ".write": "root.child('users').child(auth.uid).child('orgId').val() === $orgId"
+        ".read": "auth != null && auth.token.firebase.sign_in_provider != 'anonymous' && root.child('users').child(auth.uid).child('orgId').val() === $orgId",
+        ".write": "auth != null && auth.token.firebase.sign_in_provider != 'anonymous' && root.child('users').child(auth.uid).child('orgId').val() === $orgId"
       }
     },
     "users": {
       "$uid": {
-        ".read": "$uid === auth.uid",
-        ".write": "$uid === auth.uid"
+        ".read": "auth != null && $uid === auth.uid",
+        ".write": "auth != null && auth.token.firebase.sign_in_provider != 'anonymous' && $uid === auth.uid"
       }
     },
     "organizations": {
       "$orgId": {
-        ".read": "root.child('users').child(auth.uid).child('orgId').val() === $orgId",
-        ".write": "root.child('users').child(auth.uid).child('orgId').val() === $orgId"
+        ".read": "auth != null && auth.token.firebase.sign_in_provider != 'anonymous' && root.child('users').child(auth.uid).child('orgId').val() === $orgId",
+        ".write": "auth != null && auth.token.firebase.sign_in_provider != 'anonymous' && (root.child('users').child(auth.uid).child('orgId').val() === $orgId || !data.exists())"
       }
     },
     "accounts": {
-      ".read": "true"
+      ".read": false,
+      ".write": false
     }
   }
 }

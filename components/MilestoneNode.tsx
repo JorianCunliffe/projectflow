@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Milestone, AppSettings, Subtask } from '../types';
 import { MilestonePieChart } from './PieChart';
-import { Plus, ChevronRight, ChevronLeft, User, Edit2, Wand2, Clock, CalendarCheck, Trash2, ExternalLink, Link as LinkIcon, Move, X, ArrowRight, ArrowLeft, AlertTriangle, Calendar, Mail, Loader2, Check, CheckSquare } from 'lucide-react';
+import { Plus, ChevronRight, ChevronLeft, User, Edit2, Wand2, Clock, CalendarCheck, Trash2, ExternalLink, Link as LinkIcon, Move, X, ArrowRight, ArrowLeft, AlertTriangle, Calendar, Mail, Loader2, Check, CheckSquare, GripVertical } from 'lucide-react';
 import { getStatusBorderColor } from '../constants';
 import { sendTaskEmail } from '../lib/emailUtils';
 
@@ -74,6 +74,7 @@ interface MilestoneNodeProps {
   onAddPrevious: (milestoneId: string) => void;
   onAddParallel: (milestoneId: string) => void;
   onEditSubtask: (milestoneId: string, subtaskIndex: number) => void;
+  onReorderSubtasks?: (milestoneId: string, startIndex: number, endIndex: number) => void;
   onUpdateName: (milestoneId: string, newName: string) => void;
   onDeleteMilestone: (milestoneId: string) => void;
   onMove: (id: string, x: number, y: number, withSubtree: boolean) => void;
@@ -107,6 +108,7 @@ export const MilestoneNode: React.FC<MilestoneNodeProps> = ({
   onAddPrevious,
   onAddParallel,
   onEditSubtask,
+  onReorderSubtasks,
   onUpdateName,
   onDeleteMilestone,
   onMove,
@@ -135,6 +137,8 @@ export const MilestoneNode: React.FC<MilestoneNodeProps> = ({
   const newTaskInputRef = useRef<HTMLInputElement>(null);
   const [isThinking, setIsThinking] = useState(false);
   const [showLinkMenu, setShowLinkMenu] = useState(false);
+  const [draggedTaskIdx, setDraggedTaskIdx] = useState<number | null>(null);
+  const [dragOverTaskIdx, setDragOverTaskIdx] = useState<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const linkMenuRef = useRef<HTMLDivElement>(null);
 
@@ -478,7 +482,11 @@ export const MilestoneNode: React.FC<MilestoneNodeProps> = ({
       </div>
 
       {showSubtasks && !isLinkingMode && !isDragging && (
-        <div className="mt-4 w-52 bg-white rounded-xl shadow-xl border border-slate-100 p-2 z-10 animate-in fade-in slide-in-from-top-2 duration-200">
+        <div 
+          className="mt-4 w-52 bg-white rounded-xl shadow-xl border border-slate-100 p-2 z-10 animate-in fade-in slide-in-from-top-2 duration-200"
+          onMouseDown={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
           <div className="flex items-center justify-between border-b border-slate-50 pb-1.5 px-1 mb-2">
             <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
               Tasks ({subtasks.length})
@@ -494,62 +502,111 @@ export const MilestoneNode: React.FC<MilestoneNodeProps> = ({
             {subtasks.map((task, idx) => (
               <div 
                 key={task.id} 
+                draggable={true}
+                onDragStart={(e) => {
+                  e.stopPropagation();
+                  e.dataTransfer.setData('text/plain', String(idx));
+                  e.dataTransfer.effectAllowed = 'move';
+                  setDraggedTaskIdx(idx);
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  e.dataTransfer.dropEffect = 'move';
+                  if (dragOverTaskIdx !== idx) {
+                    setDragOverTaskIdx(idx);
+                  }
+                }}
+                onDragLeave={(e) => {
+                  e.stopPropagation();
+                  if (dragOverTaskIdx === idx) {
+                    setDragOverTaskIdx(null);
+                  }
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (draggedTaskIdx !== null && draggedTaskIdx !== idx) {
+                    onReorderSubtasks?.(milestone.id, draggedTaskIdx, idx);
+                  }
+                  setDraggedTaskIdx(null);
+                  setDragOverTaskIdx(null);
+                }}
+                onDragEnd={(e) => {
+                  e.stopPropagation();
+                  setDraggedTaskIdx(null);
+                  setDragOverTaskIdx(null);
+                }}
                 onClick={(e) => { e.stopPropagation(); onEditSubtask(milestone.id, idx); }}
-                className={`text-xs p-2 rounded-lg hover:bg-indigo-50 hover:shadow-sm cursor-pointer flex items-center justify-between group/task transition-all ${task.isImportant ? 'bg-amber-50/80' : 'bg-slate-50'}`}
+                className={`text-xs p-2 rounded-lg hover:bg-indigo-50 hover:shadow-sm cursor-pointer flex items-center justify-between group/task transition-all select-none border border-transparent ${
+                  task.isImportant ? 'bg-amber-50/80' : 'bg-slate-50'
+                } ${
+                  draggedTaskIdx === idx ? 'opacity-40 scale-[0.98] ring-2 ring-indigo-300' : ''
+                } ${
+                  dragOverTaskIdx === idx && draggedTaskIdx !== idx ? 'ring-2 ring-indigo-500 bg-indigo-50/90 shadow-sm border-indigo-200' : ''
+                }`}
               >
-                <div className="flex flex-col flex-1 min-w-0 pr-2">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      {task.displayId && (
-                        <span className="text-[8px] font-black text-indigo-600 bg-indigo-50 px-1 rounded border border-indigo-100 shrink-0">
-                          {task.displayId}
-                        </span>
+                <div className="flex items-center gap-1.5 flex-1 min-w-0 pr-1">
+                  <div 
+                    className="text-slate-300 hover:text-slate-600 cursor-grab active:cursor-grabbing p-0.5 -ml-1 rounded transition-colors shrink-0 group-hover/task:text-slate-400"
+                    title="Drag to rearrange task"
+                  >
+                    <GripVertical size={12} />
+                  </div>
+                  <div className="flex flex-col flex-1 min-w-0 pr-1">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        {task.displayId && (
+                          <span className="text-[8px] font-black text-indigo-600 bg-indigo-50 px-1 rounded border border-indigo-100 shrink-0">
+                            {task.displayId}
+                          </span>
+                        )}
+                        <span className="font-semibold truncate text-slate-800">{task.name}</span>
+                      </div>
+                      {task.link && (
+                        <a 
+                          href={task.link.startsWith('http') ? task.link : `https://${task.link}`} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="ml-2 p-1 text-indigo-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-all"
+                          title="Open Resource Link"
+                        >
+                          <ExternalLink size={12} />
+                        </a>
                       )}
-                      <span className="font-semibold truncate text-slate-800">{task.name}</span>
                     </div>
-                    {task.link && (
-                      <a 
-                        href={task.link.startsWith('http') ? task.link : `https://${task.link}`} 
-                        target="_blank" 
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        className="ml-2 p-1 text-indigo-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-all"
-                        title="Open Resource Link"
-                      >
-                        <ExternalLink size={12} />
-                      </a>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className={`text-[9px] flex items-center gap-1 ${task.role && !task.assignedTo ? 'text-amber-600 font-bold' : 'text-slate-500'}`} title={task.role ? `Role: ${task.role}${task.assignedTo ? ` | Assigned: ${task.assignedTo}` : ''}` : `Assigned: ${task.assignedTo || 'Unassigned'}`}>
+                        <User size={9} className={task.role && !task.assignedTo ? 'text-amber-500' : ''} /> {task.role ? `[${task.role}] ` : ''}{task.assignedTo || (task.role ? '' : 'Unassigned')}
+                      </span>
+                      {task.dueDate && (
+                          <span className="text-[9px] text-slate-400 flex items-center gap-0.5" title="Due Date">
+                             <Calendar size={8} />
+                          </span>
+                      )}
+                      {task.isImportant && (
+                          <AlertTriangle size={8} className="text-amber-500 fill-amber-500" />
+                      )}
+                      {task.checklist && task.checklist.length > 0 && (
+                          <span className="text-[9px] text-slate-400 flex items-center gap-0.5" title="Checklist">
+                              <CheckSquare size={8} />
+                              {task.checklist.filter(c => c.completed).length}/{task.checklist.length}
+                          </span>
+                      )}
+                      {/* Email Button - Conditionally rendered if assignee has email */} 
+                      <TaskEmailButton 
+                        task={task} 
+                        settings={settings} 
+                        projectName={projectName} 
+                        milestoneName={milestone.name} 
+                        formatDate={formatDate}
+                      />
+                    </div>
+                    {task.status === 'Complete' && task.completedAt && (
+                      <span className="text-[8px] text-emerald-600 font-medium">Done {formatDate(task.completedAt)}</span>
                     )}
                   </div>
-                  <div className="flex items-center gap-2 mt-0.5">
-                    <span className={`text-[9px] flex items-center gap-1 ${task.role && !task.assignedTo ? 'text-amber-600 font-bold' : 'text-slate-500'}`} title={task.role ? `Role: ${task.role}${task.assignedTo ? ` | Assigned: ${task.assignedTo}` : ''}` : `Assigned: ${task.assignedTo || 'Unassigned'}`}>
-                      <User size={9} className={task.role && !task.assignedTo ? 'text-amber-500' : ''} /> {task.role ? `[${task.role}] ` : ''}{task.assignedTo || (task.role ? '' : 'Unassigned')}
-                    </span>
-                    {task.dueDate && (
-                        <span className="text-[9px] text-slate-400 flex items-center gap-0.5" title="Due Date">
-                           <Calendar size={8} />
-                        </span>
-                    )}
-                    {task.isImportant && (
-                        <AlertTriangle size={8} className="text-amber-500 fill-amber-500" />
-                    )}
-                    {task.checklist && task.checklist.length > 0 && (
-                        <span className="text-[9px] text-slate-400 flex items-center gap-0.5" title="Checklist">
-                            <CheckSquare size={8} />
-                            {task.checklist.filter(c => c.completed).length}/{task.checklist.length}
-                        </span>
-                    )}
-                    {/* Email Button - Conditionally rendered if assignee has email */} 
-                    <TaskEmailButton 
-                      task={task} 
-                      settings={settings} 
-                      projectName={projectName} 
-                      milestoneName={milestone.name} 
-                      formatDate={formatDate}
-                    />
-                  </div>
-                  {task.status === 'Complete' && task.completedAt && (
-                    <span className="text-[8px] text-emerald-600 font-medium">Done {formatDate(task.completedAt)}</span>
-                  )}
                 </div>
                 <div 
                   className="w-2.5 h-2.5 rounded-full shrink-0 shadow-sm border border-white" 

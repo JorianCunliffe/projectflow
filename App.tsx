@@ -63,6 +63,7 @@ import { CloudSetupModal } from './components/modals/CloudSetupModal';
 import { CreateProjectModal } from './components/modals/CreateProjectModal';
 import { EditProjectModal } from './components/modals/EditProjectModal';
 import { EditTaskModal } from './components/modals/EditTaskModal';
+import { migrateProjectToNewCashFlow } from './services/cashFlowExcelService';
 
 const STORAGE_KEY = 'projectflow_data_v6';
 const BACKUP_KEY = 'projectflow_safety_backup';
@@ -105,6 +106,12 @@ const DEFAULT_SETTINGS: AppSettings = {
     "Held",
     "Complete"
   ],
+  folders: [
+    "Residential",
+    "Commercial",
+    "Civil & Land",
+    "Completed"
+  ],
   dateFormat: 'DD/MM/YY',
   nextProjectId: 1,
   nextTaskId: 1
@@ -120,6 +127,7 @@ const migrateSettings = (loadedSettings: Partial<AppSettings>): AppSettings => {
   merged.people = merged.people || DEFAULT_SETTINGS.people;
   merged.roles = merged.roles || DEFAULT_SETTINGS.roles || [];
   merged.statuses = merged.statuses || DEFAULT_SETTINGS.statuses;
+  merged.folders = merged.folders || DEFAULT_SETTINGS.folders || [];
   merged.teamMemberDetails = merged.teamMemberDetails || {};
   
   // Migration: If we detect the old default status order, update to new order
@@ -290,15 +298,20 @@ export const App: React.FC = () => {
     const projectsList = Array.isArray(rawProjects) ? rawProjects : Object.values(rawProjects);
     const sanitized = projectsList
       .filter((p: any) => p && p.name && p.name.trim() !== '') // Clean up ghosts/blank projects
-      .map((p: any) => {
-        let displayId = p.displayId;
+      .map((rawP: any) => {
+        let displayId = rawP.displayId;
         if (!displayId) {
           displayId = `P-${nextPId++}`;
         }
         
+        // Migrate legacy financials to unified new cash flow format (default to GST INC)
+        const p = migrateProjectToNewCashFlow(rawP);
+        
         return {
           ...p,
           displayId,
+          incomes: p.incomes || [],
+          expenses: p.expenses || [],
           markers: (Array.isArray(p.markers) ? p.markers : Object.values(p.markers || [])).map((m:any) => ({...m})),
           milestones: (Array.isArray(p.milestones) ? p.milestones : Object.values(p.milestones || [])).map((m: any) => ({
             ...m,
@@ -1131,7 +1144,9 @@ export const App: React.FC = () => {
 
     const now = Date.now();
     const projectIdNum = settings.nextProjectId || 1;
+    const projectWithCashFlow = migrateProjectToNewCashFlow(newProjectData);
     const project: Project = {
+      ...projectWithCashFlow,
       id: now.toString(),
       displayId: `P-${projectIdNum}`,
       name: newProjectData.name,
@@ -1144,6 +1159,8 @@ export const App: React.FC = () => {
       debtRequirement: newProjectData.debtRequirement,
       valueAtCompletion: newProjectData.valueAtCompletion,
       profit: newProjectData.profit,
+      incomes: projectWithCashFlow.incomes || [],
+      expenses: projectWithCashFlow.expenses || [],
       milestones,
       markers,
       createdAt: now,
@@ -1158,9 +1175,10 @@ export const App: React.FC = () => {
   };
 
   const handleSaveProjectEdit = (updatedProject: Project) => {
-    setProjects(prev => prev.map(p => p.id === updatedProject.id ? { ...updatedProject, updatedAt: Date.now() } : p));
+    const cleanProject = migrateProjectToNewCashFlow(updatedProject);
+    setProjects(prev => prev.map(p => p.id === cleanProject.id ? { ...cleanProject, updatedAt: Date.now() } : p));
     setEditingProject(null);
-    if (updatedProject.isArchived && selectedProjectId === updatedProject.id) {
+    if (cleanProject.isArchived && selectedProjectId === cleanProject.id) {
       setSelectedProjectId(null);
     }
   };
@@ -1330,6 +1348,28 @@ export const App: React.FC = () => {
       setSettings(prev => ({ ...prev, nextTaskId: taskIdNum + 1 }));
       const newId = `s-${Date.now()}`;
       setProjects(prev => prev.map(p => p.id === selectedProjectId ? { ...p, updatedAt: Date.now(), milestones: p.milestones.map(m => m.id === mId ? { ...m, subtasks: [...(m.subtasks || []), { id: newId, displayId: `T-${taskIdNum}`, name: taskName || 'New Task', description: '', assignedTo: '', notes: '', status: 'Not started' }] } : m) } : p));
+  };
+
+  const handleReorderSubtasks = (mId: string, startIndex: number, endIndex: number) => {
+    if (startIndex === endIndex) return;
+    setProjects(prev => prev.map(p => {
+      if (p.id !== selectedProjectId) return p;
+      return {
+        ...p,
+        updatedAt: Date.now(),
+        milestones: p.milestones.map(m => {
+          if (m.id !== mId) return m;
+          const newSubtasks = [...(m.subtasks || [])];
+          if (startIndex < 0 || startIndex >= newSubtasks.length || endIndex < 0 || endIndex >= newSubtasks.length) return m;
+          const [moved] = newSubtasks.splice(startIndex, 1);
+          newSubtasks.splice(endIndex, 0, moved);
+          return {
+            ...m,
+            subtasks: newSubtasks
+          };
+        })
+      };
+    }));
   };
   const updateSubtask = (mId: string, sIdx: number, updates: Partial<Subtask>) => {
       const p = projects.find(pr => pr.id === selectedProjectId);
@@ -1624,20 +1664,6 @@ export const App: React.FC = () => {
                >
                  Sign in with Google
                </button>
-
-               <button 
-                 onClick={async () => {
-                   try {
-                     setAuthError(null);
-                     await firebaseService.loginAnonymously();
-                   } catch (e: any) {
-                     setAuthError(e.message || "Failed to login anonymously. See console.");
-                   }
-                 }}
-                 className="w-full bg-slate-100 text-slate-700 font-medium py-2 px-4 rounded border border-slate-300 hover:bg-slate-200 transition"
-               >
-                 Continue Anonymously
-               </button>
              </div>
           </div>
         </div>
@@ -1647,55 +1673,80 @@ export const App: React.FC = () => {
     if (!currentOrgId) {
       return (
         <div className="h-screen w-screen flex flex-col items-center justify-center bg-slate-50 text-slate-900">
-          <div className="bg-white p-8 border border-slate-200 rounded shadow-md w-full max-w-md">
-             <h2 className="text-2xl font-bold mb-6 text-center">Join an Organization</h2>
+          <div className="bg-white p-8 border border-slate-200 rounded-xl shadow-lg w-full max-w-md">
+             <div className="text-center mb-6">
+               <h2 className="text-2xl font-bold text-slate-900">Organization Access</h2>
+               <p className="text-xs text-slate-500 mt-1">Signed in as <span className="font-semibold text-slate-700">{currentUser?.email}</span></p>
+             </div>
+
+             {authError && (
+               <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-xs font-semibold text-red-700">
+                 {authError}
+               </div>
+             )}
              
              <div className="mb-6">
-                <h3 className="font-semibold mb-2">Create New Organization</h3>
+                <h3 className="font-bold text-sm text-slate-800 mb-2">Create New Organization</h3>
                 <form onSubmit={async (e) => {
                   e.preventDefault();
                   const fd = new FormData(e.currentTarget);
-                  const orgName = fd.get('orgName') as string;
-                  if (orgName) await firebaseService.createOrganization(orgName);
+                  const orgName = (fd.get('orgName') as string || '').trim();
+                  if (orgName) {
+                    try {
+                      setAuthError(null);
+                      const success = await firebaseService.createOrganization(orgName);
+                      if (!success) {
+                        setAuthError("Failed to create organization.");
+                      }
+                    } catch (err: any) {
+                      setAuthError(err.message || "Failed to create organization.");
+                    }
+                  }
                 }}>
-                  <input type="text" name="orgName" placeholder="Organization Name (e.g. Acme Corp)" className="w-full border border-slate-300 rounded p-2 mb-2" required />
-                  <button type="submit" className="w-full bg-indigo-600 text-white font-medium py-2 px-4 rounded hover:bg-indigo-700 transition">Create Organization</button>
+                  <input type="text" name="orgName" placeholder="Organization Name (e.g. Acme Corp)" className="w-full border border-slate-300 rounded-lg p-2.5 text-sm mb-2 focus:ring-2 focus:ring-indigo-500 outline-none" required />
+                  <button type="submit" className="w-full bg-indigo-600 text-white font-bold py-2.5 px-4 rounded-lg hover:bg-indigo-700 transition text-sm">Create Organization</button>
                 </form>
              </div>
 
-             <div className="relative flex py-5 items-center">
-                <div className="flex-grow border-t border-slate-300"></div>
-                <span className="flex-shrink-0 mx-4 text-slate-400 text-sm">Or</span>
-                <div className="flex-grow border-t border-slate-300"></div>
+             <div className="relative flex py-4 items-center">
+                <div className="flex-grow border-t border-slate-200"></div>
+                <span className="flex-shrink-0 mx-4 text-slate-400 text-xs font-semibold uppercase">Or Join with Invite</span>
+                <div className="flex-grow border-t border-slate-200"></div>
              </div>
 
              <div className="mb-6">
-                <h3 className="font-semibold mb-2">Join Existing Organization</h3>
+                <h3 className="font-bold text-sm text-slate-800 mb-2">Have an Invite Token?</h3>
                 <form onSubmit={async (e) => {
                   e.preventDefault();
                   const fd = new FormData(e.currentTarget);
-                  const code = fd.get('orgCode') as string;
-                  if (code) await firebaseService.joinOrganization(code);
+                  const token = (fd.get('inviteToken') as string || '').trim();
+                  if (token) {
+                    try {
+                      setAuthError(null);
+                      const success = await firebaseService.consumeInviteToken(token);
+                      if (success) {
+                        alert('Successfully joined organization!');
+                      }
+                    } catch (err: any) {
+                      setAuthError(err.message || "Failed to join organization. Please verify your invite token.");
+                    }
+                  }
                 }}>
-                  <input type="text" name="orgCode" placeholder="Organization Code (e.g. org_12345)" className="w-full border border-slate-300 rounded p-2 mb-2" required />
-                  <button type="submit" className="w-full bg-slate-100 text-slate-800 font-medium py-2 px-4 rounded border border-slate-300 hover:bg-slate-200 transition">Join Organization</button>
+                  <input type="text" name="inviteToken" placeholder="Paste Invite Token (e.g. token_xxx)" className="w-full border border-slate-300 rounded-lg p-2.5 text-sm mb-2 focus:ring-2 focus:ring-indigo-500 outline-none" required />
+                  <button type="submit" className="w-full bg-slate-800 text-white font-bold py-2.5 px-4 rounded-lg hover:bg-slate-900 transition text-sm">Accept Invite Token</button>
                 </form>
+                <p className="text-[11px] text-slate-400 mt-2">
+                  To join an existing company workspace, request an invite link or token from your team administrator.
+                </p>
              </div>
 
-             <div className="mt-8 pt-6 border-t border-slate-200 text-center">
-                <p className="text-sm text-slate-600 mb-3">Were you using ProjectFlow before organizations?</p>
-                <button 
-                  onClick={async () => {
-                    setAuthError(null);
-                    const orgName = prompt("Enter a name for your new organization:", "Landmarx") || "Landmarx";
-                    const success = await firebaseService.migrateOldDataToOrganization(orgName);
-                    if (!success) {
-                      setAuthError("Failed to create org and migrate data.");
-                    }
-                  }}
-                  className="w-full bg-emerald-100 text-emerald-800 font-medium py-2 px-4 rounded border border-emerald-300 hover:bg-emerald-200 transition text-sm">
-                  Create new Organization & Migrate Data
-                </button>
+             <div className="pt-4 border-t border-slate-100 flex justify-between items-center text-xs">
+               <button 
+                 onClick={() => firebaseService.logout()} 
+                 className="text-slate-500 hover:text-red-600 font-bold transition-colors cursor-pointer"
+               >
+                 Sign Out / Switch Account
+               </button>
              </div>
           </div>
         </div>
@@ -2116,6 +2167,10 @@ export const App: React.FC = () => {
             projects={activeProjects} 
             settings={settings}
             activityLogs={activityLogs}
+            onEditProject={(project) => setEditingProject(project)}
+            onUpdateProject={(updatedProject) => {
+              setProjects(prev => prev.map(p => p.id === updatedProject.id ? updatedProject : p));
+            }}
             onTaskClick={(projectId, taskId) => {
               const project = projects.find(p => p.id === projectId);
               if (project) {
@@ -2142,6 +2197,7 @@ export const App: React.FC = () => {
                 onDuplicateProject={handleDuplicateProject}
                 onDeleteProject={handleDeleteProject}
                 onUpdateProject={(id, updates) => setProjects(prev => prev.map(p => p.id === id ? { ...p, ...updates, updatedAt: Date.now() } : p))}
+                onUpdateSettings={setSettings}
                 formatDate={formatDate}
               />
             ) : (
@@ -2364,6 +2420,7 @@ export const App: React.FC = () => {
                                   onAddPrevious={(id) => handleAddPreviousStep(activeProject!.id, id)}
                                   onAddParallel={(id) => handleAddMilestone(activeProject!.id, id, true)}
                                   onEditSubtask={(mId, sIdx) => setIsEditingSubtask({ mId, sIdx })}
+                                  onReorderSubtasks={handleReorderSubtasks}
                                   onUpdateName={handleUpdateMilestoneName}
                                   onDeleteMilestone={handleDeleteMilestone}
                                   onMove={handleMoveMilestone}
@@ -2408,7 +2465,22 @@ export const App: React.FC = () => {
                     </div>
                   </div>
                 </div>
-                {showProjectPanel && <ProjectSidebar stats={projectStats} settings={settings} formatDate={formatDate} projectTimeUnit={activeProject?.timeUnit || 'days'} projectTimeBuffer={activeProject?.timeBuffer || 0} />}
+                {showProjectPanel && (
+                  <ProjectSidebar 
+                    stats={projectStats} 
+                    settings={settings} 
+                    formatDate={formatDate} 
+                    projectTimeUnit={activeProject?.timeUnit || 'days'} 
+                    projectTimeBuffer={activeProject?.timeBuffer || 0}
+                    project={activeProject}
+                    onTaskClick={(mId, sIdx) => {
+                      setSelectedProjectId(activeProject.id);
+                      setIsEditingSubtask({ mId, sIdx });
+                    }}
+                    onEditProject={setEditingProject}
+                    onClose={() => setShowProjectPanel(false)}
+                  />
+                )}
               </div>
             )}
           </>

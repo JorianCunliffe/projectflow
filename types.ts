@@ -23,6 +23,7 @@ export interface AppSettings {
   companies: string[];
   people: string[];
   roles: string[];
+  folders?: string[];
   teamMemberDetails?: Record<string, TeamMemberDetails>; // name -> details
   statuses: string[];
   dateFormat: 'DD/MM/YY' | 'MM/DD/YY';
@@ -99,12 +100,67 @@ export interface Project {
   isArchived?: boolean;
   isUrgent?: boolean;
   isImportant?: boolean;
+  folder?: string;
   
-  // Financial Fields (in Thousands $K)
+  // Financial Fields (in Thousands $'000s)
   cashRequirement?: number;
   debtRequirement?: number;
   valueAtCompletion?: number;
   profit?: number;
+
+  // Key Projected Cash Flow Milestones (Expected Overall Costs & Income in Thousands $'000s)
+  initialDeposit?: number;
+  initialDepositDate?: string; // YYYY-MM-DD
+  finalDeposit?: number;
+  finalDepositDate?: string; // YYYY-MM-DD
+  settlementFigure?: number;
+  settlementDate?: string; // YYYY-MM-DD
+  softCost?: number;
+  softCostDate?: string; // YYYY-MM-DD
+  holdingCost?: number;
+  holdingCostDate?: string; // YYYY-MM-DD
+  holdingCostNotes?: string;
+  buildCost?: number;
+  buildCostDate?: string; // YYYY-MM-DD
+  builderName?: string;
+  buildCostNotes?: string;
+  salePrice?: number;
+  salePriceDate?: string; // YYYY-MM-DD
+  
+  // Granular Incomes & Expenses (Expected & Actual Payments)
+  incomes?: CashFlowItem[];
+  expenses?: CashFlowItem[];
+}
+
+export interface CashFlowItem {
+  id: string;
+  category: string;
+  description: string;
+  date: string; // YYYY-MM-DD
+  amount: number; // In dollars
+  gstType: 'INC' | 'EX'; // default 'INC'
+  status?: 'projected' | 'paid'; // default 'projected'
+  link?: string;
+}
+
+export interface CashFlowTransaction {
+  id: string;
+  projectId: string;
+  projectName: string;
+  projectDisplayId?: string;
+  company?: string;
+  item: string;
+  category?: string;
+  description?: string;
+  type: 'inflow' | 'outflow';
+  amountK: number; // in $'000s
+  amount: number; // full $ amount
+  gstType?: 'INC' | 'EX';
+  status?: 'projected' | 'paid';
+  source?: 'milestone' | 'itemized';
+  link?: string;
+  date: string; // YYYY-MM-DD
+  timestamp: number;
 }
 
 export interface ActivityLog {

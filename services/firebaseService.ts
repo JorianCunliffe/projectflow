@@ -91,6 +91,14 @@ try {
 
       if (USE_MULTI_TENANT) {
         onAuthStateChanged(auth, async (user) => {
+          if (user && user.isAnonymous) {
+            console.warn("Security policy: Anonymous access is strictly prohibited. Signing out.");
+            await auth.signOut();
+            currentUser = null;
+            currentOrgId = null;
+            window.dispatchEvent(new Event('firebase-auth-changed'));
+            return;
+          }
           currentUser = user;
           if (user) {
             const userRef = dbRef(db, `users/${user.uid}`);
@@ -143,11 +151,9 @@ export const firebaseService = {
     } catch (e: any) {
       console.error("Login failed:", e);
       if (e.code === 'auth/unauthorized-domain') {
-         console.log("Falling back to anonymous auth due to unauthorized domain");
-         const anonResult = await signInAnonymously(auth);
-         return anonResult.user;
+        throw new Error("This domain is not authorized in Firebase. Please add this domain to Authorized Domains in Firebase Console > Authentication > Settings.");
       }
-      throw e; // Rethrow to let the UI catch and display the error
+      throw e;
     }
   },
 
@@ -173,17 +179,6 @@ export const firebaseService = {
     }
   },
 
-  loginAnonymously: async () => {
-    if (!auth) return null;
-    try {
-      const result = await signInAnonymously(auth);
-      return result.user;
-    } catch (e: any) {
-      console.error("Anonymous login failed", e);
-      throw e;
-    }
-  },
-
   logout: async () => {
     if (!auth) return;
     try {
@@ -197,9 +192,15 @@ export const firebaseService = {
   getCurrentOrgId: () => currentOrgId,
 
   createOrganization: async (orgName: string) => {
-    if (!currentUser || !db) return false;
+    if (!currentUser || !db || currentUser.isAnonymous) {
+      throw new Error("You must be signed in with a verified account to create an organization.");
+    }
     try {
-      const newOrgId = `org_${Date.now()}`;
+      const secureId = typeof crypto !== 'undefined' && crypto.randomUUID 
+        ? crypto.randomUUID().replace(/-/g, '').slice(0, 16)
+        : `${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
+      const newOrgId = `org_${secureId}`;
+
       const userRef = dbRef(db, `users/${currentUser.uid}`);
       await set(userRef, {
         email: currentUser.email,
@@ -208,7 +209,8 @@ export const firebaseService = {
       });
       await set(dbRef(db, `organizations/${newOrgId}`), {
         name: orgName,
-        createdAt: Date.now()
+        createdAt: Date.now(),
+        createdBy: currentUser.uid
       });
       currentOrgId = newOrgId;
       window.dispatchEvent(new Event('firebase-auth-changed'));
@@ -219,79 +221,8 @@ export const firebaseService = {
     }
   },
 
-  migrateOldDataToOrganization: async (orgName: string) => {
-    if (!currentUser || !db) return false;
-    try {
-      const newOrgId = `org_${Date.now()}`;
-      const userRef = dbRef(db, `users/${currentUser.uid}`);
-      await set(userRef, {
-        email: currentUser.email,
-        orgId: newOrgId,
-        role: "admin"
-      });
-      await set(dbRef(db, `organizations/${newOrgId}`), {
-        name: orgName,
-        createdAt: Date.now()
-      });
-      currentOrgId = newOrgId;
-      
-      // Fetch data from legacy
-      const legacyDataRef = dbRef(db, `accounts/${ACCOUNT_ID}/projectflow_v1`);
-      const snapshot = await get(legacyDataRef);
-      if (snapshot.exists()) {
-         const data = snapshot.val();
-         // Save to new org
-         const dataRef = dbRef(db, `projects/${newOrgId}`);
-         await set(dataRef, data);
-      }
-      
-      window.dispatchEvent(new Event('firebase-auth-changed'));
-      return true;
-    } catch(e) {
-      console.error("Failed to migrate data", e);
-      return false;
-    }
-  },
-
-  recoverLegacyData: async (targetOrg?: string) => {
-    const org = targetOrg || currentOrgId;
-    if (!currentUser || !db || !org) return false;
-    try {
-      const legacyDataRef = dbRef(db, `accounts/${ACCOUNT_ID}/projectflow_v1`);
-      const snapshot = await get(legacyDataRef);
-      if (snapshot.exists()) {
-        const data = snapshot.val();
-        const dataRef = dbRef(db, `projects/${org}`);
-        await set(dataRef, data);
-        return true;
-      }
-      return false;
-    } catch(e) {
-      console.error("Failed to recover legacy data", e);
-      return false;
-    }
-  },
-
-  joinOrganization: async (orgId: string) => {
-    if (!currentUser || !db) return false;
-    try {
-      const userRef = dbRef(db, `users/${currentUser.uid}`);
-      await set(userRef, {
-        email: currentUser.email,
-        orgId: orgId,
-        role: "member"
-      });
-      currentOrgId = orgId;
-      window.dispatchEvent(new Event('firebase-auth-changed'));
-      return true;
-    } catch (e) {
-      console.error("Failed to join org", e);
-      return false;
-    }
-  },
-
   createInviteResultUrl: async (emailToInvite: string) => {
-    if (!currentUser || !currentOrgId || !db) return null;
+    if (!currentUser || !currentOrgId || !db || currentUser.isAnonymous) return null;
     try {
       const token = `token_${crypto.randomUUID()}`;
       await set(dbRef(db, `invites/${token}`), {
@@ -311,13 +242,21 @@ export const firebaseService = {
   },
 
   consumeInviteToken: async (token: string) => {
-    if (!currentUser || !db) return false;
+    if (!currentUser || !db || currentUser.isAnonymous) {
+      throw new Error("You must be signed in with a valid account to accept an invitation.");
+    }
     try {
-      const inviteRef = dbRef(db, `invites/${token}`);
+      const cleanToken = token.trim();
+      const inviteRef = dbRef(db, `invites/${cleanToken}`);
       const snap = await get(inviteRef);
       if (snap.exists()) {
-         const { orgId } = snap.val();
-         // Update user to be part of the org
+         const { orgId, email } = snap.val();
+         // Verify invite recipient if specified
+         if (email && currentUser.email && email.trim().toLowerCase() !== currentUser.email.trim().toLowerCase()) {
+           throw new Error(`This invitation was issued for ${email}. You are currently signed in as ${currentUser.email}.`);
+         }
+
+         // Update user record with the authorized orgId
          const userRef = dbRef(db, `users/${currentUser.uid}`);
          await set(userRef, {
            email: currentUser.email,
@@ -326,20 +265,20 @@ export const firebaseService = {
          });
          currentOrgId = orgId;
          
-         // Try to delete the invite token (clean up)
+         // Delete the invite token after consumption
          try {
            await set(inviteRef, null);
          } catch(e) {
-           console.warn("Could not delete invite token, permission denied?");
+           console.warn("Could not delete invite token after consumption", e);
          }
 
          window.dispatchEvent(new Event('firebase-auth-changed'));
          return true;
       }
-      return false;
+      throw new Error("Invitation token is invalid or has already been used.");
     } catch (e) {
        console.error("Failed to consume invite token", e);
-       return false;
+       throw e;
     }
   },
 

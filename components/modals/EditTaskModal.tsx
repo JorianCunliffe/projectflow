@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Mail, Phone, X, Trash2, ExternalLink, Calendar, Clock, AlertTriangle, Loader2, Check, Plus } from 'lucide-react';
+import { Mail, Phone, X, Trash2, ExternalLink, Calendar, Clock, AlertTriangle, Loader2, Check, Plus, GripVertical } from 'lucide-react';
 import { Subtask, AppSettings } from '../../types';
 import { sendTaskEmail } from '../../lib/emailUtils';
 import { ScreenRecorder } from '../ScreenRecorder';
@@ -86,6 +86,8 @@ export const EditTaskModal: React.FC<EditTaskModalProps> = ({
   const [showDisapproveOptions, setShowDisapproveOptions] = useState(false);
   const [disapproveComment, setDisapproveComment] = useState('');
   const [holdResponseInput, setHoldResponseInput] = useState('');
+  const [draggedChecklistIdx, setDraggedChecklistIdx] = useState<number | null>(null);
+  const [dragOverChecklistIdx, setDragOverChecklistIdx] = useState<number | null>(null);
 
   if (!isOpen || !task) return null;
 
@@ -499,11 +501,67 @@ export const EditTaskModal: React.FC<EditTaskModalProps> = ({
           </div>
 
           <div>
-            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Checklist Items</label>
-            <div className="space-y-2 mb-3">
+            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 flex items-center justify-between">
+              <span>Checklist Items</span>
+              {(task.checklist || []).length > 1 && (
+                <span className="text-[9px] font-semibold text-slate-400 lowercase tracking-normal">drag to rearrange</span>
+              )}
+            </label>
+            <div className="space-y-1.5 mb-3">
               {(task.checklist || []).map((item, idx) => (
-                <div key={item.id} className="flex items-center gap-2">
+                <div 
+                  key={item.id} 
+                  draggable={true}
+                  onDragStart={(e) => {
+                    e.stopPropagation();
+                    e.dataTransfer.setData('text/plain', String(idx));
+                    e.dataTransfer.effectAllowed = 'move';
+                    setDraggedChecklistIdx(idx);
+                  }}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    e.dataTransfer.dropEffect = 'move';
+                    if (dragOverChecklistIdx !== idx) {
+                      setDragOverChecklistIdx(idx);
+                    }
+                  }}
+                  onDragLeave={(e) => {
+                    e.stopPropagation();
+                    if (dragOverChecklistIdx === idx) {
+                      setDragOverChecklistIdx(null);
+                    }
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (draggedChecklistIdx !== null && draggedChecklistIdx !== idx) {
+                      const newChecklist = [...(task.checklist || [])];
+                      const [moved] = newChecklist.splice(draggedChecklistIdx, 1);
+                      newChecklist.splice(idx, 0, moved);
+                      onUpdate({ checklist: newChecklist });
+                    }
+                    setDraggedChecklistIdx(null);
+                    setDragOverChecklistIdx(null);
+                  }}
+                  onDragEnd={() => {
+                    setDraggedChecklistIdx(null);
+                    setDragOverChecklistIdx(null);
+                  }}
+                  className={`flex items-center gap-2 p-1.5 rounded-lg border border-transparent transition-all group/chk ${
+                    draggedChecklistIdx === idx ? 'opacity-40 scale-[0.98] bg-slate-100 ring-2 ring-indigo-200' : 'hover:bg-slate-50'
+                  } ${
+                    dragOverChecklistIdx === idx && draggedChecklistIdx !== idx ? 'border-indigo-400 bg-indigo-50/70 shadow-xs' : ''
+                  }`}
+                >
+                  <div 
+                    className="text-slate-300 hover:text-slate-600 cursor-grab active:cursor-grabbing p-0.5 rounded transition-colors shrink-0 group-hover/chk:text-slate-500" 
+                    title="Drag to rearrange"
+                  >
+                    <GripVertical size={13} />
+                  </div>
                   <button 
+                    type="button"
                     onClick={() => {
                       const newChecklist = [...(task.checklist || [])];
                       newChecklist[idx] = { ...item, completed: !item.completed };
@@ -534,11 +592,12 @@ export const EditTaskModal: React.FC<EditTaskModalProps> = ({
                     }}
                   />
                   <button 
+                    type="button"
                     onClick={() => {
                       const newChecklist = (task.checklist || []).filter(c => c.id !== item.id);
                       onUpdate({ checklist: newChecklist });
                     }}
-                    className="p-1 text-slate-400 hover:text-rose-500 rounded"
+                    className="p-1 text-slate-400 hover:text-rose-500 rounded transition-colors"
                   >
                     <X size={14} />
                   </button>
@@ -546,6 +605,7 @@ export const EditTaskModal: React.FC<EditTaskModalProps> = ({
               ))}
               <div className="flex items-center gap-2 mt-2">
                 <button 
+                  type="button"
                   onClick={() => {
                     const newItem = { id: `chk-${Date.now()}`, text: '', completed: false };
                     onUpdate({ checklist: [...(task.checklist || []), newItem] });
