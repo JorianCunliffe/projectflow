@@ -189,12 +189,43 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
       <div className="flex-1 overflow-hidden bg-slate-50/50 p-2 md:p-6 h-full w-full flex flex-col">
         {/* Header Row (Statuses) */}
         <div className="flex gap-1.5 md:gap-4 mb-2 shrink-0">
-          <div className="hidden md:flex w-56 shrink-0 items-center justify-between px-2">
-            <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-              {grouping === 'project' ? <Briefcase size={12} className="text-indigo-600" /> : <Users size={12} className="text-indigo-600" />}
-              {grouping === 'project' ? 'Projects' : 'Team Members'}
-            </span>
-            <span className="text-[10px] font-bold text-slate-500 bg-slate-200/60 px-2 py-0.5 rounded-full">
+          <div className="flex w-44 md:w-56 shrink-0 items-center justify-between px-1 md:px-2">
+            {onGroupingChange ? (
+              <div className="flex items-center bg-slate-200/80 p-0.5 rounded-lg border border-slate-300/60 shadow-2xs">
+                <button
+                  type="button"
+                  onClick={() => onGroupingChange('project')}
+                  className={`flex items-center gap-1 px-1.5 md:px-2 py-1 rounded text-[10px] md:text-xs transition-all cursor-pointer ${
+                    grouping === 'project'
+                      ? 'bg-white text-indigo-700 font-black shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 font-bold'
+                  }`}
+                  title="Group by Project"
+                >
+                  <Briefcase size={11} className={grouping === 'project' ? 'text-indigo-600' : 'text-slate-500'} />
+                  <span>By Project</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onGroupingChange('member')}
+                  className={`flex items-center gap-1 px-1.5 md:px-2 py-1 rounded text-[10px] md:text-xs transition-all cursor-pointer ${
+                    grouping === 'member'
+                      ? 'bg-white text-indigo-700 font-black shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 font-bold'
+                  }`}
+                  title="Group by Person"
+                >
+                  <Users size={11} className={grouping === 'member' ? 'text-indigo-600' : 'text-slate-500'} />
+                  <span>By Person</span>
+                </button>
+              </div>
+            ) : (
+              <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                {grouping === 'project' ? <Briefcase size={12} className="text-indigo-600" /> : <Users size={12} className="text-indigo-600" />}
+                {grouping === 'project' ? 'Projects' : 'Team Members'}
+              </span>
+            )}
+            <span className="hidden lg:inline text-[9px] font-bold text-slate-500 bg-slate-200/60 px-1.5 py-0.5 rounded-full">
               {swimlanes.length} {grouping === 'project' ? 'Lanes' : 'Members'}
             </span>
           </div>

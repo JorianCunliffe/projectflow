@@ -4,7 +4,7 @@ import {
   BarChart3, Filter, Calendar, CheckCircle2, Circle, AlertCircle, Clock, 
   Activity, Target, Banknote, Download, FileSpreadsheet, ArrowUpRight, 
   ArrowDownLeft, DollarSign, ExternalLink, TrendingUp, TrendingDown, Layers, Hammer,
-  ChevronDown, ChevronUp, Scale
+  ChevronDown, ChevronUp, Scale, MessageSquare
 } from 'lucide-react';
 import { 
   exportCashFlowToExcel, exportCashFlowToCSV, getProjectCashFlowTransactions, 
@@ -31,6 +31,7 @@ export const ReportingView: React.FC<ReportingViewProps> = ({
   const [activeTab, setActiveTab] = useState<'progress' | 'current' | 'cashflow'>('progress');
   const [cashFlowMode, setCashFlowMode] = useState<'milestones' | 'payments' | 'comparison'>('milestones');
   const [paymentStatusFilter, setPaymentStatusFilter] = useState<'ALL' | 'projected' | 'paid'>('ALL');
+  const [filterProgressType, setFilterProgressType] = useState<'ALL' | 'STATUS' | 'COMMENTS'>('ALL');
   const [filterProject, setFilterProject] = useState<string>('ALL');
   const [filterMember, setFilterMember] = useState<string>('ALL');
   const [filterStatus, setFilterStatus] = useState<string>('ALL');
@@ -102,18 +103,35 @@ export const ReportingView: React.FC<ReportingViewProps> = ({
     return result;
   }, [allTasks, filterProject, filterMember, filterStatus, startDate, endDate]);
 
-  // Activity logs filtered for the progress report
+  // Activity logs filtered for the progress report (Includes Status Changes and Comments)
   const progressLogs = useMemo(() => {
-    let logs = activityLogs.filter(log => log.action === 'updated' && log.details && (log.details.includes('Status') || log.details.includes('Completed')));
+    let logs = activityLogs.filter(log => {
+      const isComment = log.action === 'comment';
+      const isStatusChange = log.action === 'updated' && !!log.details && (
+        log.details.toLowerCase().includes('status') ||
+        log.details.toLowerCase().includes('completed') ||
+        log.details.toLowerCase().includes('approval') ||
+        log.details.toLowerCase().includes('started')
+      );
+
+      if (!isComment && !isStatusChange) return false;
+
+      if (filterProgressType === 'STATUS' && !isStatusChange) return false;
+      if (filterProgressType === 'COMMENTS' && !isComment) return false;
+
+      return true;
+    });
 
     if (filterProject !== 'ALL') {
       logs = logs.filter(log => log.projectId === filterProject);
     }
     if (filterMember !== 'ALL') {
-      // Find the task to check assigned member, or use userId
+      // Find the task to check assigned member, or match user/author
       logs = logs.filter(log => {
         const taskObj = allTasks.find(t => t.task.id === log.taskId);
-        return taskObj?.task.assignedTo === filterMember;
+        return taskObj?.task.assignedTo === filterMember || 
+               log.raci?.responsible === filterMember || 
+               log.userId === filterMember;
       });
     }
     if (startDate) {
@@ -128,15 +146,18 @@ export const ReportingView: React.FC<ReportingViewProps> = ({
     // Sort newest first
     logs.sort((a, b) => b.timestamp - a.timestamp);
     return logs;
-  }, [activityLogs, filterProject, filterMember, startDate, endDate, allTasks]);
+  }, [activityLogs, filterProgressType, filterProject, filterMember, startDate, endDate, allTasks]);
 
   // Progress summary metrics
   const progressSummary = useMemo(() => {
     let completed = 0;
     let otherUpdates = 0;
+    let comments = 0;
 
     progressLogs.forEach(log => {
-      if (log.details?.includes('Completed') || log.details?.includes('Status changed to Complete')) {
+      if (log.action === 'comment') {
+        comments++;
+      } else if (log.details?.includes('Completed') || log.details?.includes('Status changed to Complete')) {
         completed++;
       } else {
         otherUpdates++;
@@ -152,7 +173,7 @@ export const ReportingView: React.FC<ReportingViewProps> = ({
       }
     });
 
-    return { completed, otherUpdates, totalActualTimeInPeriod };
+    return { completed, otherUpdates, comments, totalActualTimeInPeriod };
   }, [progressLogs, allTasks]);
 
   // Current state summary
@@ -475,6 +496,22 @@ export const ReportingView: React.FC<ReportingViewProps> = ({
 
           {activeTab !== 'cashflow' ? (
             <>
+              {activeTab === 'progress' && (
+                <div className="w-48">
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 flex items-center gap-1">
+                    <Filter size={10} /> Activity Type
+                  </label>
+                  <select 
+                    value={filterProgressType} 
+                    onChange={e => setFilterProgressType(e.target.value as any)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500"
+                  >
+                    <option value="ALL">All (Status & Comments)</option>
+                    <option value="STATUS">Status Changes Only</option>
+                    <option value="COMMENTS">Comments Only</option>
+                  </select>
+                </div>
+              )}
               <div className="w-40">
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Member</label>
                 <select 
@@ -607,6 +644,7 @@ export const ReportingView: React.FC<ReportingViewProps> = ({
 
           <button 
             onClick={() => {
+              setFilterProgressType('ALL');
               setFilterProject('ALL');
               setFilterMember('ALL');
               setFilterStatus('ALL');
@@ -632,17 +670,29 @@ export const ReportingView: React.FC<ReportingViewProps> = ({
         {activeTab === 'progress' ? (
           <>
             {/* Progress Summary Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-4 shadow-sm">
-                <div className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-1">Tasks Completed</div>
+                <div className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-1 flex items-center gap-1.5">
+                  <CheckCircle2 size={12} /> Tasks Completed
+                </div>
                 <div className="text-3xl font-black text-emerald-900">{progressSummary.completed}</div>
               </div>
+              <div className="bg-blue-50 border border-blue-100 rounded-2xl p-4 shadow-sm">
+                <div className="text-[10px] font-black text-blue-600 uppercase tracking-widest mb-1 flex items-center gap-1.5">
+                  <Activity size={12} /> Status Moves
+                </div>
+                <div className="text-3xl font-black text-blue-900">{progressSummary.otherUpdates}</div>
+              </div>
               <div className="bg-indigo-50 border border-indigo-100 rounded-2xl p-4 shadow-sm">
-                <div className="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-1">Other Status Moves</div>
-                <div className="text-3xl font-black text-indigo-900">{progressSummary.otherUpdates}</div>
+                <div className="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-1 flex items-center gap-1.5">
+                  <MessageSquare size={12} /> Comments Logged
+                </div>
+                <div className="text-3xl font-black text-indigo-900">{progressSummary.comments}</div>
               </div>
               <div className="bg-amber-50 border border-amber-100 rounded-2xl p-4 shadow-sm">
-                <div className="text-[10px] font-black text-amber-600 uppercase tracking-widest mb-1">Total Actual Time Logged (for touched tasks)</div>
+                <div className="text-[10px] font-black text-amber-600 uppercase tracking-widest mb-1 flex items-center gap-1.5">
+                  <Clock size={12} /> Total Actual Time
+                </div>
                 <div className="text-3xl font-black text-amber-900">{progressSummary.totalActualTimeInPeriod.toFixed(1)} <span className="text-sm font-bold text-amber-500">units</span></div>
               </div>
             </div>
@@ -652,47 +702,100 @@ export const ReportingView: React.FC<ReportingViewProps> = ({
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                    <th className="p-4">Date/Time</th>
-                    <th className="p-4">Task Name</th>
-                    <th className="p-4">Project</th>
-                    <th className="p-4">Change</th>
-                    <th className="p-4">Assignee</th>
+                    <th className="p-4 w-40">Date/Time</th>
+                    <th className="p-4 w-52">Task Name</th>
+                    <th className="p-4 w-40">Project</th>
+                    <th className="p-4">Change / Comment</th>
+                    <th className="p-4 w-44">User / Assignee</th>
                   </tr>
                 </thead>
                 <tbody>
                   {progressLogs.length === 0 ? (
                     <tr>
                       <td colSpan={5} className="p-12 text-center text-slate-400 font-medium">
-                        No progress logged matching your criteria.
+                        No progress or comments logged matching your criteria.
                       </td>
                     </tr>
                   ) : (
                     progressLogs.map(log => {
                       const taskObj = allTasks.find(t => t.task.id === log.taskId);
                       const projectName = projects.find(p => p.id === log.projectId)?.name || 'Unknown Project';
+                      const isComment = log.action === 'comment';
+                      const isCompleted = log.details?.toLowerCase().includes('completed') || log.details?.toLowerCase().includes('complete');
+
                       return (
                         <tr 
                           key={log.id} 
-                          className="border-b border-slate-100 hover:bg-slate-50 cursor-pointer transition-colors group"
+                          className="border-b border-slate-100 hover:bg-slate-50/80 cursor-pointer transition-colors group"
                           onClick={() => onTaskClick?.(log.projectId, log.taskId)}
                         >
-                          <td className="p-4 text-sm font-medium text-slate-500 whitespace-nowrap">
-                            {new Date(log.timestamp).toLocaleString()}
+                          <td className="p-4 text-xs font-medium text-slate-500 whitespace-nowrap align-top">
+                            <div>{new Date(log.timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</div>
+                            <div className="text-[10px] text-slate-400">{new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
                           </td>
-                          <td className="p-4">
-                            <div className="font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">
+                          <td className="p-4 align-top">
+                            <div className="font-bold text-slate-900 group-hover:text-indigo-600 transition-colors text-sm">
                               {log.taskName}
                             </div>
-                            {taskObj?.task.displayId && <div className="text-[10px] text-slate-400 mt-0.5">{taskObj.task.displayId}</div>}
+                            {taskObj?.task.displayId && (
+                              <div className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.2 rounded border border-indigo-100 inline-block mt-1">
+                                {taskObj.task.displayId}
+                              </div>
+                            )}
                           </td>
-                          <td className="p-4 text-sm font-medium text-slate-600">{projectName}</td>
-                          <td className="p-4">
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
-                              <Activity size={12} />
-                              {log.details || 'Status updated'}
-                            </span>
+                          <td className="p-4 text-xs font-semibold text-slate-600 align-top">
+                            {projectName}
                           </td>
-                          <td className="p-4 text-sm font-medium text-slate-700">{taskObj?.task.assignedTo || <span className="text-slate-400">Unassigned</span>}</td>
+                          <td className="p-4 align-top">
+                            {isComment ? (
+                              <div className="space-y-1.5">
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-black bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                  <MessageSquare size={11} className="text-indigo-600" />
+                                  Comment
+                                </span>
+                                <div className="text-xs text-slate-800 bg-slate-50/90 border border-slate-200 rounded-xl p-3 whitespace-pre-wrap leading-relaxed shadow-2xs">
+                                  {log.details}
+                                </div>
+                              </div>
+                            ) : (
+                              <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ${
+                                isCompleted 
+                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
+                                  : 'bg-blue-50 text-blue-700 border border-blue-200'
+                              }`}>
+                                {isCompleted ? <CheckCircle2 size={12} /> : <Activity size={12} />}
+                                {log.details || 'Status updated'}
+                              </span>
+                            )}
+                          </td>
+                          <td className="p-4 text-xs font-medium text-slate-700 align-top">
+                            {isComment ? (
+                              <div>
+                                <div className="font-bold text-slate-900 flex items-center gap-1">
+                                  <span className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-[10px] font-black shrink-0">
+                                    {(log.userId || 'U').charAt(0).toUpperCase()}
+                                  </span>
+                                  <span className="truncate">{log.userId || 'Team Member'}</span>
+                                </div>
+                                {taskObj?.task.assignedTo && (
+                                  <div className="text-[10px] text-slate-400 mt-1 pl-6">
+                                    Assigned: {taskObj.task.assignedTo}
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <div>
+                                <div className="font-bold text-slate-800">
+                                  {taskObj?.task.assignedTo || <span className="text-slate-400 font-normal italic">Unassigned</span>}
+                                </div>
+                                {log.userId && log.userId !== taskObj?.task.assignedTo && (
+                                  <div className="text-[10px] text-slate-400 mt-0.5">
+                                    By: {log.userId}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </td>
                         </tr>
                       );
                     })

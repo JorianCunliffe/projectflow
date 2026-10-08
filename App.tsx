@@ -230,7 +230,7 @@ export const App: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
 
   const [isCreatingProject, setIsCreatingProject] = useState(false);
-  const [isEditingSubtask, setIsEditingSubtask] = useState<{ mId: string, sIdx: number | null } | null>(null);
+  const [isEditingSubtask, setIsEditingSubtask] = useState<{ projectId?: string; mId: string, sIdx: number | null } | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isCloudSetupOpen, setIsCloudSetupOpen] = useState(false);
 
@@ -548,7 +548,9 @@ export const App: React.FC = () => {
 
   // View Context Logic
   useEffect(() => {
-    // If we enter a project, we default to standard view, but we should update kanban filters to match context
+    // Only adjust kanban defaults when entering/exiting a project in Map view,
+    // NEVER override user's active board if they are in Kanban mode, Feed, Scratch, Reporting, or Approvals!
+    if (isKanbanMode || isScratchMode || isFeedMode || isApprovalsMode || isReportingMode) return;
     if (selectedProjectId) {
       setKanbanFilterProject(selectedProjectId);
       setKanbanGrouping('member'); // Usually meaningful to see team breakdown within a project
@@ -556,7 +558,7 @@ export const App: React.FC = () => {
       setKanbanFilterProject('ALL');
       setKanbanGrouping('project'); // Global view usually groups by project
     }
-  }, [selectedProjectId]);
+  }, [selectedProjectId, isKanbanMode, isScratchMode, isFeedMode, isApprovalsMode, isReportingMode]);
 
   const handleDisconnectFirebase = () => {
     if(window.confirm("Are you sure you want to disconnect? You will switch back to local storage.")) {
@@ -995,8 +997,9 @@ export const App: React.FC = () => {
   };
 
   // AI & Project Manipulation Functions (Unchanged logic)
-  const handleCreateFollowUpTask = (mId: string, sIdx: number) => {
-      const p = projects.find(pr => pr.id === selectedProjectId);
+  const handleCreateFollowUpTask = (mId: string, sIdx: number, targetProjectId?: string) => {
+      const projId = targetProjectId || isEditingSubtask?.projectId || selectedProjectId;
+      const p = projects.find(pr => pr.id === projId);
       const s = p?.milestones.find(mi => mi.id === mId)?.subtasks[sIdx];
       if (!p || !s) return;
       
@@ -1018,7 +1021,7 @@ export const App: React.FC = () => {
         name: `Follow up: ${s.name}`
       };
 
-      setProjects(prev => prev.map(p => p.id === selectedProjectId ? {
+      setProjects(prev => prev.map(p => p.id === projId ? {
         ...p,
         updatedAt: Date.now(),
         milestones: p.milestones.map(m => m.id === mId ? {
@@ -1386,8 +1389,9 @@ export const App: React.FC = () => {
       };
     }));
   };
-  const updateSubtask = (mId: string, sIdx: number, updates: Partial<Subtask>) => {
-      const p = projects.find(pr => pr.id === selectedProjectId);
+  const updateSubtask = (mId: string, sIdx: number, updates: Partial<Subtask>, targetProjectId?: string) => {
+      const projId = targetProjectId || isEditingSubtask?.projectId || selectedProjectId;
+      const p = projects.find(pr => pr.id === projId);
       const s = p?.milestones.find(mi => mi.id === mId)?.subtasks[sIdx];
       
       let finalUpdates = { ...updates };
@@ -1441,7 +1445,7 @@ export const App: React.FC = () => {
               });
           }
       }
-      setProjects(prev => prev.map(p => p.id === selectedProjectId ? { 
+      setProjects(prev => prev.map(p => p.id === projId ? { 
           ...p, updatedAt: Date.now(), 
           milestones: p.milestones.map(m => m.id === mId ? { 
               ...m, 
@@ -1449,12 +1453,19 @@ export const App: React.FC = () => {
           } : m) 
       } : p));
   };
-  const deleteSubtask = (mId: string, sIdx: number) => {
-      const p = projects.find(pr => pr.id === selectedProjectId);
+  const deleteSubtask = (mId: string, sIdx: number, targetProjectId?: string) => {
+      const projId = targetProjectId || isEditingSubtask?.projectId || selectedProjectId;
+      const p = projects.find(pr => pr.id === projId);
       const s = p?.milestones.find(mi => mi.id === mId)?.subtasks[sIdx];
       if (p && s) {
+        logActivity(p.id, s.id, s.name || 'Task', 'deleted', 'Task deleted', {
+          responsible: s.assignedTo,
+          accountable: s.accountable,
+          consulted: s.consulted,
+          informed: s.informed
+        });
       }
-      setProjects(prev => prev.map(p => p.id === selectedProjectId ? { ...p, milestones: p.milestones.map(m => m.id === mId ? { ...m, subtasks: m.subtasks.filter((_, i) => i !== sIdx) } : m) } : p));
+      setProjects(prev => prev.map(p => p.id === projId ? { ...p, milestones: p.milestones.map(m => m.id === mId ? { ...m, subtasks: m.subtasks.filter((_, i) => i !== sIdx) } : m) } : p));
   };
 
   const handleAddComment = (projectId: string, milestoneId: string, subtaskIndex: number, commentText: string, authorName?: string) => {
@@ -2260,9 +2271,8 @@ export const App: React.FC = () => {
             todayFilter={kanbanFilterToday === false ? undefined : true}
             lateFilter={kanbanFilterLate === false ? undefined : true}
             onTaskClick={(projectId, milestoneId, subtaskIndex) => {
-              // Ensure we open modal in context
-              setSelectedProjectId(projectId);
-              setIsEditingSubtask({ mId: milestoneId, sIdx: subtaskIndex });
+              // Open task modal directly without changing kanban filter or grouping
+              setIsEditingSubtask({ projectId, mId: milestoneId, sIdx: subtaskIndex });
             }}
             onStatusChange={handleKanbanStatusChange}
             onDeleteTask={handleKanbanDeleteTask}
@@ -2280,8 +2290,7 @@ export const App: React.FC = () => {
                 for (const milestone of project.milestones) {
                   const sIdx = milestone.subtasks?.findIndex(s => s.id === taskId);
                   if (sIdx !== undefined && sIdx !== -1) {
-                    setSelectedProjectId(projectId);
-                    setIsEditingSubtask({ mId: milestone.id, sIdx });
+                    setIsEditingSubtask({ projectId, mId: milestone.id, sIdx });
                     return;
                   }
                 }
@@ -2294,8 +2303,7 @@ export const App: React.FC = () => {
             currentUser={currentUser} 
             settings={settings}
             onEditTask={(projectId, milestoneId, subtaskIndex) => {
-              setSelectedProjectId(projectId);
-              setIsEditingSubtask({ mId: milestoneId, sIdx: subtaskIndex });
+              setIsEditingSubtask({ projectId, mId: milestoneId, sIdx: subtaskIndex });
             }}
           />
         ) : isReportingMode ? (
@@ -2313,8 +2321,7 @@ export const App: React.FC = () => {
                 for (const milestone of project.milestones) {
                   const sIdx = milestone.subtasks?.findIndex(s => s.id === taskId);
                   if (sIdx !== undefined && sIdx !== -1) {
-                    setSelectedProjectId(projectId);
-                    setIsEditingSubtask({ mId: milestone.id, sIdx });
+                    setIsEditingSubtask({ projectId, mId: milestone.id, sIdx });
                     return;
                   }
                 }
@@ -2659,23 +2666,31 @@ export const App: React.FC = () => {
         />
       )}
       
-      {/* Subtask Modal - Used by both Map and Kanban */}
-      {isEditingSubtask && selectedProjectId && activeProject && (
-         <EditTaskModal 
-           isOpen={!!isEditingSubtask}
-           onClose={() => setIsEditingSubtask(null)}
-           task={activeProject.milestones.find(m => m.id === isEditingSubtask.mId)?.subtasks[isEditingSubtask.sIdx!]!}
-           milestoneName={activeProject.milestones.find(m => m.id === isEditingSubtask.mId)?.name || 'Unknown'}
-           projectName={activeProject.name}
-           projectTimeUnit={activeProject.timeUnit || 'days'}
-           settings={settings}
-           currentUser={currentUser}
-           onUpdate={(updates) => updateSubtask(isEditingSubtask.mId, isEditingSubtask.sIdx!, updates)}
-           onAddComment={(commentText, author) => handleAddComment(activeProject.id, isEditingSubtask.mId, isEditingSubtask.sIdx!, commentText, author)}
-           onDelete={() => { deleteSubtask(isEditingSubtask.mId, isEditingSubtask.sIdx!); setIsEditingSubtask(null); }}
-           onCreateFollowUp={() => handleCreateFollowUpTask(isEditingSubtask.mId, isEditingSubtask.sIdx!)}
-         />
-      )}
+      {/* Subtask Modal - Used by Map, Kanban, Feed, Approvals, and Reporting */}
+      {isEditingSubtask && (() => {
+         const projId = isEditingSubtask.projectId || selectedProjectId;
+         const project = projects.find(p => p.id === projId);
+         if (!project) return null;
+         const milestone = project.milestones.find(m => m.id === isEditingSubtask.mId);
+         if (!milestone || isEditingSubtask.sIdx === null || !milestone.subtasks || !milestone.subtasks[isEditingSubtask.sIdx]) return null;
+         const task = milestone.subtasks[isEditingSubtask.sIdx];
+         return (
+           <EditTaskModal 
+             isOpen={!!isEditingSubtask}
+             onClose={() => setIsEditingSubtask(null)}
+             task={task}
+             milestoneName={milestone.name || 'Unknown'}
+             projectName={project.name}
+             projectTimeUnit={project.timeUnit || 'days'}
+             settings={settings}
+             currentUser={currentUser}
+             onUpdate={(updates) => updateSubtask(isEditingSubtask.mId, isEditingSubtask.sIdx!, updates, projId)}
+             onAddComment={(commentText, author) => handleAddComment(projId, isEditingSubtask.mId, isEditingSubtask.sIdx!, commentText, author)}
+             onDelete={() => { deleteSubtask(isEditingSubtask.mId, isEditingSubtask.sIdx!, projId); setIsEditingSubtask(null); }}
+             onCreateFollowUp={() => handleCreateFollowUpTask(isEditingSubtask.mId, isEditingSubtask.sIdx!, projId)}
+           />
+         );
+      })()}
 
       {/* Delete Confirmation Dialogs */}
       {milestoneToDelete && (
