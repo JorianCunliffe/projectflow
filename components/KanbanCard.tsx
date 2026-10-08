@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { User, AlertTriangle, Clock, Calendar, Trash2, Mail, Loader2, Check, Video, Mic, CheckSquare } from 'lucide-react';
+import { User, AlertTriangle, Clock, Calendar, Trash2, Mail, Loader2, Check, Video, Mic, CheckSquare, MessageSquare } from 'lucide-react';
 import { Subtask, AppSettings } from '../types';
 import { getStatusBorderColor } from '../constants';
 import { sendTaskEmail } from '../lib/emailUtils';
@@ -214,6 +214,12 @@ export const KanbanCard: React.FC<KanbanCardProps> = ({
                 <div className={`flex items-center gap-0.5 text-[8px] md:text-[10px] font-bold px-1 py-0.5 rounded border ${task.checklist.filter(c => c.completed).length === task.checklist.length ? 'bg-indigo-50 text-indigo-600 border-indigo-100' : 'bg-slate-50 text-slate-500 border-slate-200'}`} title="Checklist Progress">
                     <CheckSquare size={8} className="md:w-[10px] md:h-[10px]" />
                     <span>{task.checklist.filter(c => c.completed).length}/{task.checklist.length}</span>
+                </div>
+            )}
+            {task.commentHistory && task.commentHistory.length > 0 && (
+                <div className="flex items-center gap-0.5 text-[8px] md:text-[10px] font-bold text-slate-500 bg-slate-50 px-1 py-0.5 rounded border border-slate-200" title={`${task.commentHistory.length} comment${task.commentHistory.length > 1 ? 's' : ''}`}>
+                    <MessageSquare size={8} className="md:w-[10px] md:h-[10px] text-indigo-500" />
+                    <span>{task.commentHistory.length}</span>
                 </div>
             )}
         </div>

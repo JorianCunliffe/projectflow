@@ -39,7 +39,7 @@ export interface Subtask {
   role?: string;
   description: string;
   notes: string;
-  commentHistory?: { text: string; status: string; timestamp: number }[];
+  commentHistory?: { text: string; status: string; timestamp: number; author?: string }[];
   status: string;
   link?: string; // optional external resource link
   completedAt?: number; // timestamp when status became 'Complete'
@@ -168,7 +168,7 @@ export interface ActivityLog {
   projectId: string;
   taskId: string;
   taskName: string;
-  action: 'created' | 'updated' | 'deleted';
+  action: 'created' | 'updated' | 'deleted' | 'comment';
   userId: string;
   timestamp: number;
   details?: string;

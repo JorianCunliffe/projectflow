@@ -2,13 +2,14 @@ import React, { useMemo, useState } from 'react';
 import { Project, AppSettings, Subtask } from '../types';
 import { KanbanCard } from './KanbanCard';
 import { getStatusBorderColor } from '../constants';
-import { Plus } from 'lucide-react';
+import { Plus, Briefcase, Users } from 'lucide-react';
 import { CreateTaskKanbanModal } from './modals/CreateTaskKanbanModal';
 
 interface KanbanBoardProps {
   projects: Project[];
   settings: AppSettings;
   grouping: 'project' | 'member';
+  onGroupingChange?: (grouping: 'project' | 'member') => void;
   projectPriorityFilter?: string | null;
   memberFilter?: string | null;
   projectFilter?: string | null;
@@ -37,6 +38,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
   projects,
   settings,
   grouping,
+  onGroupingChange,
   projectPriorityFilter,
   memberFilter,
   projectFilter,
@@ -187,7 +189,15 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
       <div className="flex-1 overflow-hidden bg-slate-50/50 p-2 md:p-6 h-full w-full flex flex-col">
         {/* Header Row (Statuses) */}
         <div className="flex gap-1.5 md:gap-4 mb-2 shrink-0">
-          <div className="hidden md:block w-56 shrink-0 bg-transparent"></div> {/* Swimlane Header Spacer - Desktop Only */}
+          <div className="hidden md:flex w-56 shrink-0 items-center justify-between px-2">
+            <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+              {grouping === 'project' ? <Briefcase size={12} className="text-indigo-600" /> : <Users size={12} className="text-indigo-600" />}
+              {grouping === 'project' ? 'Projects' : 'Team Members'}
+            </span>
+            <span className="text-[10px] font-bold text-slate-500 bg-slate-200/60 px-2 py-0.5 rounded-full">
+              {swimlanes.length} {grouping === 'project' ? 'Lanes' : 'Members'}
+            </span>
+          </div>
           {columns.map(status => (
             <div 
               key={status} 
@@ -214,9 +224,20 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                   {/* Swimlane Header - Hidden on Mobile */}
                   <div className="hidden md:block w-56 shrink-0 pt-2 sticky left-0 z-20">
                     <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm group-hover/lane:shadow-md transition-all group-hover/lane:border-indigo-200">
+                      <div className="flex items-center gap-1.5 mb-1.5">
+                        {lane.type === 'project' ? (
+                          <span className="text-[9px] font-black uppercase tracking-wider text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100 flex items-center gap-1">
+                            <Briefcase size={10} /> Project
+                          </span>
+                        ) : (
+                          <span className="text-[9px] font-black uppercase tracking-wider text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100 flex items-center gap-1">
+                            <Users size={10} /> Member
+                          </span>
+                        )}
+                      </div>
                       <h3 className="font-bold text-slate-800 text-sm truncate" title={lane.title}>{lane.title}</h3>
                       <div className="text-xs text-slate-500 mt-1 font-medium bg-slate-100 w-fit px-2 py-0.5 rounded-full">
-                        {laneTasksCount} tasks
+                        {laneTasksCount} {laneTasksCount === 1 ? 'task' : 'tasks'}
                       </div>
                     </div>
                   </div>

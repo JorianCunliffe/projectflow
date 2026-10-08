@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Mail, Phone, X, Trash2, ExternalLink, Calendar, Clock, AlertTriangle, Loader2, Check, Plus, GripVertical } from 'lucide-react';
+import { Mail, Phone, X, Trash2, ExternalLink, Calendar, Clock, AlertTriangle, Loader2, Check, Plus, GripVertical, MessageSquare, Send, User } from 'lucide-react';
 import { Subtask, AppSettings } from '../../types';
 import { sendTaskEmail } from '../../lib/emailUtils';
 import { ScreenRecorder } from '../ScreenRecorder';
@@ -72,7 +72,9 @@ interface EditTaskModalProps {
   milestoneName: string;
   projectName: string;
   settings: AppSettings;
+  currentUser?: any;
   onUpdate: (updates: Partial<Subtask>) => void;
+  onAddComment?: (text: string, author?: string) => void;
   onDelete: () => void;
   children?: React.ReactNode;
   projectTimeUnit?: string;
@@ -80,14 +82,44 @@ interface EditTaskModalProps {
 }
 
 export const EditTaskModal: React.FC<EditTaskModalProps> = ({ 
-  isOpen, onClose, task, milestoneName, projectName, settings, onUpdate, onDelete, children, projectTimeUnit, onCreateFollowUp
+  isOpen, onClose, task, milestoneName, projectName, settings, currentUser, onUpdate, onAddComment, onDelete, children, projectTimeUnit, onCreateFollowUp
 }) => {
   const [showApproveOptions, setShowApproveOptions] = useState(false);
   const [showDisapproveOptions, setShowDisapproveOptions] = useState(false);
   const [disapproveComment, setDisapproveComment] = useState('');
   const [holdResponseInput, setHoldResponseInput] = useState('');
+  const [newCommentText, setNewCommentText] = useState('');
+  const [commentAuthor, setCommentAuthor] = useState<string>(() => {
+    return currentUser?.displayName || (currentUser?.email ? currentUser.email.split('@')[0] : '') || (settings.people && settings.people[0]) || 'Me';
+  });
   const [draggedChecklistIdx, setDraggedChecklistIdx] = useState<number | null>(null);
   const [dragOverChecklistIdx, setDragOverChecklistIdx] = useState<number | null>(null);
+
+  const handlePostComment = () => {
+    if (!newCommentText.trim()) return;
+    const author = commentAuthor.trim() || currentUser?.displayName || (currentUser?.email ? currentUser.email.split('@')[0] : '') || 'Me';
+    if (onAddComment) {
+      onAddComment(newCommentText.trim(), author);
+    } else {
+      const newComment = {
+        text: newCommentText.trim(),
+        status: task.status,
+        timestamp: Date.now(),
+        author: author
+      };
+      onUpdate({
+        commentHistory: [...(task.commentHistory || []), newComment]
+      });
+    }
+    setNewCommentText('');
+  };
+
+  const handleCommentKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      e.preventDefault();
+      handlePostComment();
+    }
+  };
 
   if (!isOpen || !task) return null;
 
@@ -327,10 +359,15 @@ export const EditTaskModal: React.FC<EditTaskModalProps> = ({
                   </button>
                   <button 
                     onClick={() => {
+                      const approverName = commentAuthor || currentUser?.displayName || currentUser?.email || 'Approver';
+                      const commentMsg = `Approver Note: ${disapproveComment.trim()}`;
+                      if (onAddComment) {
+                        onAddComment(commentMsg, approverName);
+                      }
                       onUpdate({ 
                         approvalStatus: 'rejected', 
                         status: 'Started', 
-                        notes: task.notes ? `${task.notes}\n\nApprover Comment: ${disapproveComment}` : `Approver Comment: ${disapproveComment}` 
+                        notes: task.notes ? `${task.notes}\n\n${commentMsg}` : commentMsg 
                       });
                       setShowDisapproveOptions(false);
                       setDisapproveComment('');
@@ -379,12 +416,16 @@ export const EditTaskModal: React.FC<EditTaskModalProps> = ({
                     <div className="flex justify-end">
                       <button
                          onClick={() => {
-                           const newNote = `Hold Question: ${task.holdQuestion || 'None'}\nHold Resolved by ${task.holdOwner || 'Someone'}: ${holdResponseInput}`;
+                           const responderName = task.holdOwner || commentAuthor || currentUser?.displayName || currentUser?.email || 'Team Member';
+                           const holdMsg = `Hold Resolved (${responderName}): ${holdResponseInput.trim()}${task.holdQuestion ? ` [Question was: "${task.holdQuestion}"]` : ''}`;
+                           if (onAddComment) {
+                             onAddComment(holdMsg, responderName);
+                           }
                            onUpdate({ 
                              status: 'Started', 
                              holdOwner: undefined,
                              holdQuestion: undefined,
-                             notes: task.notes ? `${task.notes}\n\n${newNote}` : newNote 
+                             notes: task.notes ? `${task.notes}\n\n${holdMsg}` : holdMsg 
                            });
                            setHoldResponseInput('');
                          }}
@@ -627,22 +668,123 @@ export const EditTaskModal: React.FC<EditTaskModalProps> = ({
             />
           </div>
 
-          <div>
-            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Comments & Notes</label>
-            <div className="space-y-2 mb-2">
-              {(task.commentHistory || []).map((ch, idx) => (
-                <div key={idx} className="bg-slate-100 rounded-xl p-3 border border-slate-200 opacity-70">
-                  <div className="flex justify-between items-center mb-1">
-                     <span className="text-[10px] font-bold text-slate-500 uppercase">{new Date(ch.timestamp).toLocaleString()}</span>
-                     <span className="text-[10px] font-bold text-indigo-500 uppercase px-2 py-0.5 bg-indigo-50 rounded-full">{ch.status}</span>
+          {/* Comments & Activity Section */}
+          <div className="bg-slate-50/70 rounded-2xl p-4 border border-slate-200/80 space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="text-[10px] font-black text-indigo-700 uppercase tracking-widest flex items-center gap-1.5">
+                <MessageSquare size={13} className="text-indigo-600" />
+                Comments & Activity ({task.commentHistory?.length || 0})
+              </label>
+              <span className="text-[10px] text-slate-400 font-semibold">
+                Feeds into Activity Feed
+              </span>
+            </div>
+
+            {/* Comment History List */}
+            {task.commentHistory && task.commentHistory.length > 0 ? (
+              <div className="space-y-2.5 max-h-56 overflow-y-auto pr-1">
+                {task.commentHistory.map((ch, idx) => (
+                  <div key={idx} className="bg-white rounded-xl p-3 border border-slate-200/80 shadow-xs">
+                    <div className="flex items-center justify-between mb-1.5 gap-2">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <div className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-[10px] font-black shrink-0">
+                          {(ch.author || 'U').charAt(0).toUpperCase()}
+                        </div>
+                        <span className="text-xs font-bold text-slate-800 truncate">
+                          {ch.author || 'Team Member'}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <span className="text-[9px] font-bold text-indigo-600 uppercase px-2 py-0.5 bg-indigo-50 border border-indigo-100 rounded-full">
+                          {ch.status}
+                        </span>
+                        <span className="text-[10px] text-slate-400 font-medium">
+                          {new Date(ch.timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} {new Date(ch.timestamp).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </div>
+                    </div>
+                    <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed pl-6">
+                      {ch.text}
+                    </p>
                   </div>
-                  <p className="text-sm text-slate-600 whitespace-pre-wrap">{ch.text}</p>
+                ))}
+              </div>
+            ) : (
+              <div className="text-xs text-slate-400 italic bg-white p-3 rounded-xl border border-dashed border-slate-200 text-center">
+                No comments yet. Post the first update or comment below.
+              </div>
+            )}
+
+            {/* New Comment Input Box */}
+            <div className="bg-white rounded-xl border border-slate-200 p-2.5 shadow-xs focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-100 transition-all">
+              <textarea
+                className="w-full bg-transparent text-sm text-slate-900 outline-none resize-none placeholder:text-slate-400 min-h-[56px]"
+                placeholder="Write a comment or update (Ctrl+Enter to post)..."
+                value={newCommentText}
+                onChange={(e) => setNewCommentText(e.target.value)}
+                onKeyDown={handleCommentKeyDown}
+              />
+              <div className="flex items-center justify-between pt-2 border-t border-slate-100 mt-1 gap-2 flex-wrap">
+                <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                  <User size={12} className="text-slate-400" />
+                  <span className="text-[10px] font-bold uppercase text-slate-400">As:</span>
+                  <select
+                    value={commentAuthor}
+                    onChange={(e) => setCommentAuthor(e.target.value)}
+                    className="text-xs font-bold text-slate-700 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 outline-none cursor-pointer hover:border-indigo-300"
+                  >
+                    {currentUser?.displayName && (
+                      <option value={currentUser.displayName}>{currentUser.displayName} (You)</option>
+                    )}
+                    {currentUser?.email && !currentUser?.displayName && (
+                      <option value={currentUser.email.split('@')[0]}>{currentUser.email.split('@')[0]} (You)</option>
+                    )}
+                    {(settings.people || []).map(p => (
+                      <option key={p} value={p}>{p}</option>
+                    ))}
+                  </select>
                 </div>
-              ))}
+                <button
+                  type="button"
+                  onClick={handlePostComment}
+                  disabled={!newCommentText.trim()}
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-bold rounded-lg transition-all shadow-xs cursor-pointer"
+                >
+                  <Send size={12} />
+                  <span>Post Comment</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Scratchpad Notes */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                Internal Scratchpad Notes
+              </label>
+              {task.notes && task.notes.trim() && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (task.notes?.trim()) {
+                      const author = commentAuthor || currentUser?.displayName || currentUser?.email || 'Me';
+                      if (onAddComment) {
+                        onAddComment(task.notes.trim(), author);
+                      }
+                      onUpdate({ notes: '' });
+                    }
+                  }}
+                  className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-2 py-0.5 rounded transition-colors"
+                  title="Move this scratchpad note into the formal comments and activity feed"
+                >
+                  Post Note as Comment &rarr;
+                </button>
+              )}
             </div>
             <textarea 
-              className="w-full h-24 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
-              placeholder="Add new comments or notes here..."
+              className="w-full h-20 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+              placeholder="Private draft notes..."
               value={task.notes || ''}
               onChange={(e) => onUpdate({ notes: e.target.value })}
             />

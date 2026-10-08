@@ -253,11 +253,26 @@ export const App: React.FC = () => {
   const [isRegistering, setIsRegistering] = useState(false);
   const [isDataLoaded, setIsDataLoaded] = useState(false); 
   
-  const logActivity = (projectId: string, taskId: string, taskName: string, action: 'created'|'updated'|'deleted', details?: string, raci?: ActivityLog['raci']) => {
+  const logActivity = (
+    projectId: string, 
+    taskId: string, 
+    taskName: string, 
+    action: 'created'|'updated'|'deleted'|'comment', 
+    details?: string, 
+    raci?: ActivityLog['raci'],
+    userId?: string
+  ) => {
     setActivityLogs(prev => {
       const newLog: ActivityLog = {
         id: Math.random().toString(36).substr(2, 9),
-        projectId, taskId, taskName, action, details, raci, userId: currentUser?.email || currentUser?.uid || 'unknown', timestamp: Date.now()
+        projectId, 
+        taskId, 
+        taskName, 
+        action, 
+        details, 
+        raci, 
+        userId: userId || currentUser?.displayName || currentUser?.email || currentUser?.uid || 'unknown', 
+        timestamp: Date.now()
       };
       return [newLog, ...prev];
     });
@@ -1393,11 +1408,19 @@ export const App: React.FC = () => {
               isSignificantChange = true;
               
               if (s.notes && s.notes.trim()) {
+                  const noteText = s.notes.trim();
+                  const author = s.assignedTo || currentUser?.displayName || (currentUser?.email ? currentUser.email.split('@')[0] : '') || 'Team Member';
                   finalUpdates.commentHistory = [
                       ...(s.commentHistory || []),
-                      { text: s.notes, status: s.status, timestamp: Date.now() }
+                      { text: noteText, status: s.status, timestamp: Date.now(), author }
                   ];
                   finalUpdates.notes = '';
+                  logActivity(p.id, s.id, s.name || 'Task', 'comment', noteText, {
+                     responsible: s.assignedTo,
+                     accountable: s.accountable,
+                     consulted: s.consulted,
+                     informed: s.informed,
+                  }, author);
               }
           }
 
@@ -1432,6 +1455,63 @@ export const App: React.FC = () => {
       if (p && s) {
       }
       setProjects(prev => prev.map(p => p.id === selectedProjectId ? { ...p, milestones: p.milestones.map(m => m.id === mId ? { ...m, subtasks: m.subtasks.filter((_, i) => i !== sIdx) } : m) } : p));
+  };
+
+  const handleAddComment = (projectId: string, milestoneId: string, subtaskIndex: number, commentText: string, authorName?: string) => {
+      if (!commentText || !commentText.trim()) return;
+      const project = projects.find(p => p.id === projectId);
+      if (!project) return;
+      const milestone = project.milestones.find(m => m.id === milestoneId);
+      if (!milestone) return;
+      const task = milestone.subtasks[subtaskIndex];
+      if (!task) return;
+
+      const trimmedComment = commentText.trim();
+      const now = Date.now();
+      const author = authorName || currentUser?.displayName || (currentUser?.email ? currentUser.email.split('@')[0] : '') || 'Team Member';
+
+      const newCommentItem = {
+        text: trimmedComment,
+        status: task.status,
+        timestamp: now,
+        author: author
+      };
+
+      setProjects(prev => prev.map(p => {
+        if (p.id !== projectId) return p;
+        return {
+          ...p,
+          updatedAt: now,
+          milestones: p.milestones.map(m => {
+            if (m.id !== milestoneId) return m;
+            return {
+              ...m,
+              subtasks: m.subtasks.map((s, idx) => {
+                if (idx !== subtaskIndex) return s;
+                return {
+                  ...s,
+                  commentHistory: [...(s.commentHistory || []), newCommentItem]
+                };
+              })
+            };
+          })
+        };
+      }));
+
+      logActivity(
+        projectId,
+        task.id,
+        task.name || 'Task',
+        'comment',
+        trimmedComment,
+        {
+          responsible: task.assignedTo,
+          accountable: task.accountable,
+          consulted: task.consulted,
+          informed: task.informed
+        },
+        author
+      );
   };
 
   const handleKanbanStatusChange = (pId: string, mId: string, sIdx: number, newStatus: string) => {
@@ -1475,11 +1555,19 @@ export const App: React.FC = () => {
               let updatedS = { ...s, status: newStatus, completedAt };
 
               if (s.notes && s.notes.trim() && s.status !== newStatus) {
+                const noteText = s.notes.trim();
+                const author = s.assignedTo || currentUser?.displayName || (currentUser?.email ? currentUser.email.split('@')[0] : '') || 'Team Member';
                 updatedS.commentHistory = [
                   ...(s.commentHistory || []),
-                  { text: s.notes, status: s.status, timestamp: Date.now() }
+                  { text: noteText, status: s.status, timestamp: Date.now(), author }
                 ];
                 updatedS.notes = '';
+                logActivity(p.id, s.id, s.name || 'Task', 'comment', noteText, {
+                   responsible: s.assignedTo,
+                   accountable: s.accountable,
+                   consulted: s.consulted,
+                   informed: s.informed,
+                }, author);
               }
 
               return updatedS;
@@ -1784,10 +1872,29 @@ export const App: React.FC = () => {
               </div>
               ProjectFlow
             </h1>
-            <div className="flex bg-slate-100 rounded-lg p-0.5">
-               <span className="px-3 py-1.5 rounded-md text-xs font-bold text-indigo-600 flex items-center gap-1">
-                 <Briefcase size={12} /> View By: Project
-               </span>
+            <div className="flex bg-slate-100 rounded-lg p-0.5 border border-slate-200">
+              <button
+                type="button"
+                onClick={() => setKanbanGrouping('project')}
+                className={`px-2.5 py-1 rounded-md text-xs font-bold flex items-center gap-1 transition-all cursor-pointer ${
+                  kanbanGrouping === 'project'
+                    ? 'bg-white text-indigo-700 shadow-xs border border-slate-200/80 font-black'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                <Briefcase size={12} /> Project
+              </button>
+              <button
+                type="button"
+                onClick={() => setKanbanGrouping('member')}
+                className={`px-2.5 py-1 rounded-md text-xs font-bold flex items-center gap-1 transition-all cursor-pointer ${
+                  kanbanGrouping === 'member'
+                    ? 'bg-white text-indigo-700 shadow-xs border border-slate-200/80 font-black'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                <Users size={12} /> Person
+              </button>
             </div>
          </div>
          <div className="p-2 flex gap-2 overflow-x-auto">
@@ -1987,11 +2094,39 @@ export const App: React.FC = () => {
         {/* DESKTOP KANBAN CONTROLS BAR (Hidden on Mobile) */}
         {isKanbanMode && (
           <div className="hidden md:flex bg-white border-b border-slate-200 px-6 py-3 flex-wrap items-center gap-4 shrink-0 shadow-sm z-20">
-             <div className="flex items-center gap-2 text-sm text-slate-500 font-medium">
-                <span className="uppercase text-[10px] font-bold tracking-wider text-slate-400">View By: Project</span>
+             <div className="flex items-center gap-2">
+               <span className="uppercase text-[10px] font-black tracking-wider text-slate-400">Group By:</span>
+               <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 shadow-xs">
+                 <button
+                   type="button"
+                   onClick={() => setKanbanGrouping('project')}
+                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
+                     kanbanGrouping === 'project'
+                       ? 'bg-white text-indigo-700 shadow-sm border border-slate-200/80 font-black'
+                       : 'text-slate-500 hover:text-slate-800 font-bold'
+                   }`}
+                   title="View Kanban board grouped by Project"
+                 >
+                   <Briefcase size={14} className={kanbanGrouping === 'project' ? 'text-indigo-600' : 'text-slate-400'} />
+                   <span>By Project</span>
+                 </button>
+                 <button
+                   type="button"
+                   onClick={() => setKanbanGrouping('member')}
+                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition-all cursor-pointer ${
+                     kanbanGrouping === 'member'
+                       ? 'bg-white text-indigo-700 shadow-sm border border-slate-200/80 font-black'
+                       : 'text-slate-500 hover:text-slate-800 font-bold'
+                   }`}
+                   title="View Kanban board grouped by Person (Team Member)"
+                 >
+                   <Users size={14} className={kanbanGrouping === 'member' ? 'text-indigo-600' : 'text-slate-400'} />
+                   <span>By Person</span>
+                 </button>
+               </div>
              </div>
              
-             <div className="h-6 w-px bg-slate-200 mx-2" />
+             <div className="h-6 w-px bg-slate-200 mx-1" />
              
              <div className="flex items-center gap-2">
                <select 
@@ -2116,6 +2251,7 @@ export const App: React.FC = () => {
             projects={activeProjects}
             settings={settings}
             grouping={kanbanGrouping}
+            onGroupingChange={setKanbanGrouping}
             projectPriorityFilter={kanbanFilterProjectPriority}
             projectFilter={kanbanFilterProject === 'ALL' ? null : kanbanFilterProject}
             memberFilter={kanbanFilterMember === 'ALL' ? null : kanbanFilterMember}
@@ -2533,7 +2669,9 @@ export const App: React.FC = () => {
            projectName={activeProject.name}
            projectTimeUnit={activeProject.timeUnit || 'days'}
            settings={settings}
+           currentUser={currentUser}
            onUpdate={(updates) => updateSubtask(isEditingSubtask.mId, isEditingSubtask.sIdx!, updates)}
+           onAddComment={(commentText, author) => handleAddComment(activeProject.id, isEditingSubtask.mId, isEditingSubtask.sIdx!, commentText, author)}
            onDelete={() => { deleteSubtask(isEditingSubtask.mId, isEditingSubtask.sIdx!); setIsEditingSubtask(null); }}
            onCreateFollowUp={() => handleCreateFollowUpTask(isEditingSubtask.mId, isEditingSubtask.sIdx!)}
          />

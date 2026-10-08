@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Milestone, AppSettings, Subtask } from '../types';
 import { MilestonePieChart } from './PieChart';
-import { Plus, ChevronRight, ChevronLeft, User, Edit2, Wand2, Clock, CalendarCheck, Trash2, ExternalLink, Link as LinkIcon, Move, X, ArrowRight, ArrowLeft, AlertTriangle, Calendar, Mail, Loader2, Check, CheckSquare, GripVertical } from 'lucide-react';
+import { Plus, ChevronRight, ChevronLeft, User, Edit2, Wand2, Clock, CalendarCheck, Trash2, ExternalLink, Link as LinkIcon, Move, X, ArrowRight, ArrowLeft, AlertTriangle, Calendar, Mail, Loader2, Check, CheckSquare, GripVertical, MessageSquare } from 'lucide-react';
 import { getStatusBorderColor } from '../constants';
 import { sendTaskEmail } from '../lib/emailUtils';
 
@@ -592,6 +592,12 @@ export const MilestoneNode: React.FC<MilestoneNodeProps> = ({
                           <span className="text-[9px] text-slate-400 flex items-center gap-0.5" title="Checklist">
                               <CheckSquare size={8} />
                               {task.checklist.filter(c => c.completed).length}/{task.checklist.length}
+                          </span>
+                      )}
+                      {task.commentHistory && task.commentHistory.length > 0 && (
+                          <span className="text-[9px] font-bold text-slate-500 bg-slate-100 px-1 py-0.2 rounded flex items-center gap-0.5" title={`${task.commentHistory.length} comment${task.commentHistory.length > 1 ? 's' : ''}`}>
+                              <MessageSquare size={8} className="text-indigo-500" />
+                              {task.commentHistory.length}
                           </span>
                       )}
                       {/* Email Button - Conditionally rendered if assignee has email */} 
